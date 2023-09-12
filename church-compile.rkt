@@ -1,5 +1,7 @@
 #lang racket
 
+(require rackunit)
+
 ;; Assignment 4: A church-compiler for Scheme, to Lambda-calculus
 
 (provide church-compile
@@ -47,8 +49,18 @@
 ;; Using the following decoding functions:
 
 ; A church-encoded nat is a function taking an f, and x, returning (f^n x)
+; Takes in evaled church-compile output. Expect (church->nat (eval (church-compile input) ...)) to be $answer.
 (define (church->nat c-nat)
   ((c-nat add1) 0))
+
+(define c0 (lambda (_) (lambda (x) x)))
+(define c1 (lambda (f) (lambda (x) (f x))))
+(define c2 (lambda (f) (lambda (x) (f (f x)))))
+(define c3 (lambda (f) (lambda (x) (f (f (f x))))))
+(check-equal? (church->nat c0) 0)
+(check-equal? (church->nat c1) 1)
+(check-equal? (church->nat c2) 2)
+(check-equal? (church->nat c3) 3)
 
 ; A church-encoded bool is a function taking a true-thunk and false-thunk,
 ;   returning (true-thunk) when true, and (false-thunk) when false
@@ -68,20 +80,35 @@
 
 ;; Write your church-compiling code below:
 
+(define (encode-nat n)
+  (define (h n acc)
+    (match n
+      [0 acc]
+      [_ `(f ,(h (sub1 n) acc))]))
+  (eval `(lambda (f) (lambda (x) ,(h n 'x))) (make-base-namespace)))
+
+(check-equal? (church->nat (encode-nat 3)) (church->nat (lambda (f) (lambda (x) (f (f (f x)))))))
+(check-equal? (church->nat (encode-nat 2)) (church->nat (lambda (f) (lambda (x) (f (f x))))))
+(check-equal? (church->nat (encode-nat 0)) (church->nat (lambda (_) (lambda (x) x))))
+
+(define (encode-succ n) (displayln "succ.."))
+
 ; churchify recursively walks the AST and converts each expression in the input language (defined above)
 ;   to an equivalent (when converted back via each church->XYZ) expression in the output language (defined above)
 (define (churchify e)
   (match e
-         [_ 'todo]))
+         [`(add1 ,operand) (encode-succ e)]
+         [_ (encode-nat e)]))
 
 ; Takes a whole program in the input language, and converts it into an equivalent program in lambda-calc
 (define (church-compile program)
   ; Define primitive operations and needed helpers using a top-level let form?
   (define todo `(lambda (x) x))
-  (churchify
-   `(let ([add1 ,todo]
-          [+ ,todo]
-          [* ,todo]
-          [zero? ,todo])
-      ,program)))
+  (churchify program))
+  ; (churchify
+  ;  `(let ([add1 ,todo]
+  ;         [+ ,todo]
+  ;         [* ,todo]
+  ;         [zero? ,todo])
+  ;     ,program)))
 
