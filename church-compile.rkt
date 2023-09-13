@@ -80,25 +80,40 @@
 
 ;; Write your church-compiling code below:
 
-(define (encode-nat n)
+(define/contract (encode-nat n caller)
+  (-> number? string? procedure?)
+  (if (not (equal? caller "")) (displayln caller) (void))
+  
   (define (h n acc)
     (match n
       [0 acc]
       [_ `(f ,(h (sub1 n) acc))]))
   (eval `(lambda (f) (lambda (x) ,(h n 'x))) (make-base-namespace)))
 
-(check-equal? (church->nat (encode-nat 3)) (church->nat (lambda (f) (lambda (x) (f (f (f x)))))))
-(check-equal? (church->nat (encode-nat 2)) (church->nat (lambda (f) (lambda (x) (f (f x))))))
-(check-equal? (church->nat (encode-nat 0)) (church->nat (lambda (_) (lambda (x) x))))
+(check-equal? (church->nat (encode-nat 3 "")) (church->nat (lambda (f) (lambda (x) (f (f (f x)))))))
+(check-equal? (church->nat (encode-nat 2 "")) (church->nat (lambda (f) (lambda (x) (f (f x))))))
+(check-equal? (church->nat (encode-nat 0 "")) (church->nat (lambda (_) (lambda (x) x))))
 
-(define (encode-succ n) (displayln "succ.."))
+; fixed point moment? why can't I call encode-succ within itself. though it turns out I don't want to do it
+(define (encode-succ e caller)
+  (if (not (equal? caller "")) (displayln caller) (void))
+
+  (match e
+    [       `(lambda (,f) (lambda (,x) ,inner))
+      (eval `(lambda (,f) (lambda (,x) (,f ,inner))) (make-base-namespace))]
+    [_  e]))
+
+(check-equal? (church->nat (encode-succ '(lambda (f) (lambda (x) x)) "")) (church->nat (lambda (f) (lambda (x) (f x)))))
+(check-equal? (church->nat (encode-succ '(lambda (f) (lambda (x) (f (f x)))) "")) (church->nat (lambda (f) (lambda (x) (f (f (f x)))))))
+(check-equal? (church->nat (encode-succ '(lambda (f) (lambda (x) (f (f (f x))))) "")) (church->nat (lambda (f) (lambda (x) (f (f (f (f x))))))))
 
 ; churchify recursively walks the AST and converts each expression in the input language (defined above)
 ;   to an equivalent (when converted back via each church->XYZ) expression in the output language (defined above)
 (define (churchify e)
   (match e
-         [`(add1 ,operand) (encode-succ e)]
-         [_ (encode-nat e)]))
+         [`(add1 ,(? number? operand))  (encode-succ (encode-nat operand "") "")]
+         [`(add1 ,church-num)           (encode-succ church-num "")]
+         [_                             (encode-nat e "churchify")]))
 
 ; Takes a whole program in the input language, and converts it into an equivalent program in lambda-calc
 (define (church-compile program)
