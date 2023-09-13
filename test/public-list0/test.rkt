@@ -1,10 +1,10 @@
 #lang racket
 
-(require "church-compile.rkt")
+(require "../../church-compile.rkt")
 
-(define prog '(+ 1 (+ 2 (+ 3 3))))
+(define prog '(cons 1 (cons 2 (cons 3 '()))))
 
-(define unchurch church->nat)
+(define unchurch (church->listof church->nat))
 
 (define v (eval prog (make-base-namespace)))
 (with-output-to-file "answer"
