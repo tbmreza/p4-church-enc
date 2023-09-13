@@ -109,6 +109,18 @@
       (lambda (x) ((cn f) ((ck f) x))))))
 (check-equal? (church->nat ((cplus c2) c3)) 5)
 
+(define (cmul cn)
+  (lambda (ck)
+    (lambda (f)
+      (lambda (x) ((cn (ck f)) x)))))
+(check-equal? (church->nat ((cmul c3) c3)) 9)
+
+(define (cpow cn)
+  (lambda (ck)
+    (lambda (f)
+      (lambda (x) (((cn ck) f) x)))))
+(check-equal? (church->nat ((cpow c3) c3)) 27)
+
 ; https://en.wikipedia.org/wiki/Church_encoding#Represent_the_list_using_right_fold
 ; 
 ; church pair defs:
@@ -119,7 +131,20 @@
 (check-eq? (church->nat (csecond ((cpair c1) c2))) (church->nat (csecond ((cpair c0) c2))))
 ;
 ; right fold functions:
-(define (ccons a b)  (λ (c) (λ (n) (c a b))))
+(define (ccons a b) (λ (c) (λ (n) (c a b))))
+; slide:
+; ‘() = (λ (when-cons) (λ (when-null)
+;  (when-null)))
+;
+; (cons a b) = (λ (when-cons) (λ (when-null)
+;  (when-cons a b)))
+
+
+(define (cconsd a b caller)
+  (define (fmt) (display "cconsd caller: ") (displayln caller))
+  (if (not (equal? caller "")) (fmt) (void))
+  (λ (c) (λ (n) (c a b))))
+
 ; (define (ccons2 a b) ((ccons a) b))
 (define cnil         (λ (c) (λ (n) (n))))
 (define cnil?        (λ (l) ((l (λ (a b) #f)) (λ () #t))))
@@ -127,7 +152,7 @@
 
 (check-true (cnil? cnil))
 (check-false (cnil? (ccons cnil cnil)))
-(check-false (cnil? (ccons 2 cnil)))
+(check-false (cnil? (ccons c2 cnil)))
 (check-false ((ccar (ccons not cnil)) #t))
 
 ; (define nat90 (cnat 90 ""))
@@ -135,12 +160,19 @@
 ; churchify recursively walks the AST and converts each expression in the input language (defined above)
 ;   to an equivalent (when converted back via each church->XYZ) expression in the output language (defined above)
 (define (churchify e)
+  ; (define prog '(cons 1 (cons 2 (cons 3 '()))))
+  (define (ff)
+    (displayln "correct arm")
+    (ccons c2 cnil))
   (match e
-         [`(cons ,e1 '())               (ccons (cnat e1 "") cnil)]
+         ; [`(cons ,e1 '())               (ccons (cnat e1 "") cnil)]
          ; [`(cons ,e1 '())               ((?? nat90) cnull)]
          ; [`(cons ,e1 ,e2)               ((?? (cnat e1 "")) (churchify e2))]
+         ; [`(cons ,e1 ,e2)             (cconsd c1 cnil "the arm")  ]
+         [`(cons ,e1 ,e2)               (ff)  ]
          [(? number? e)                 (cnat e "")]
          [`(+ ,e1 ,e2)                  ((cplus (churchify e1)) (churchify e2))]
+         [`(* ,e1 ,e2)                  ((cmul (churchify e1)) (churchify e2))]
          [`(add1 ,(? number? operand))  (csucc (cnat operand ""))]
          [`(add1 ,inner)                (csucc (churchify inner))]
          [_                             e]))
@@ -157,3 +189,10 @@
   ;         [zero? ,todo])
   ;     ,program)))
 
+(define prog '(cons 1 (cons 2 (cons 3 '()))))
+(define compiled (church-compile prog))
+(define cv-comp (eval compiled (make-base-namespace)))
+; (define v-comp (unchurch cv-comp))
+; things to try:
+;   debug print listof
+;   curry ccons
