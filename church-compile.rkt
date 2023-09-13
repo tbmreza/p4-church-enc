@@ -80,9 +80,12 @@
 
 ;; Write your church-compiling code below:
 
-(define/contract (encode-nat n caller)
-  (-> number? string? procedure?)
-  (if (not (equal? caller "")) (displayln caller) (void))
+(define/contract (cnat n caller)
+(-> number? string? procedure?)
+; (define (cnat n caller)
+  (define (fmt) (display "cnat caller: ") (displayln caller))
+  (if (not (equal? caller "")) (fmt) (void))
+  ; (display "num: ") (displayln n)
   
   (define (h n acc)
     (match n
@@ -90,36 +93,57 @@
       [_ `(f ,(h (sub1 n) acc))]))
   (eval `(lambda (f) (lambda (x) ,(h n 'x))) (make-base-namespace)))
 
-(check-equal? (church->nat (encode-nat 3 "")) (church->nat (lambda (f) (lambda (x) (f (f (f x)))))))
-(check-equal? (church->nat (encode-nat 2 "")) (church->nat (lambda (f) (lambda (x) (f (f x))))))
-(check-equal? (church->nat (encode-nat 0 "")) (church->nat (lambda (_) (lambda (x) x))))
+(check-equal? (church->nat (cnat 3 "")) (church->nat (lambda (f) (lambda (x) (f (f (f x)))))))
+(check-equal? (church->nat (cnat 2 "")) (church->nat (lambda (f) (lambda (x) (f (f x))))))
+(check-equal? (church->nat (cnat 0 "")) (church->nat (lambda (_) (lambda (x) x))))
 
-; ; unacceptable because this is done in textual level.
-; (define (encode-succ e)
-;   (match e
-;     [       `(lambda (,f) (lambda (,x) ,inner))
-;       (eval `(lambda (,f) (lambda (,x) (,f ,inner))) (make-base-namespace))]
-;     [_  e]))
-
-(define (encode-succ cn)
+(define (csucc cn)
   (lambda (f)
     (lambda (x) (f ((cn f) x)))))
-(check-equal? (church->nat (encode-succ (lambda (_) (lambda (x) x)))) (church->nat (lambda (f) (lambda (x) (f x)))))
-(check-equal? (church->nat (encode-succ (lambda (f) (lambda (x) (f (f x)))))) (church->nat (lambda (f) (lambda (x) (f (f (f x)))))))
+(check-equal? (church->nat (csucc (lambda (_) (lambda (x) x)))) (church->nat (lambda (f) (lambda (x) (f x)))))
+(check-equal? (church->nat (csucc (lambda (f) (lambda (x) (f (f x)))))) (church->nat (lambda (f) (lambda (x) (f (f (f x)))))))
 
-(define (encode-plus cn)
+(define (cplus cn)
   (lambda (ck)
     (lambda (f)
       (lambda (x) ((cn f) ((ck f) x))))))
-(check-equal? (church->nat ((encode-plus c2) c3)) 5)
+(check-equal? (church->nat ((cplus c2) c3)) 5)
+
+; https://en.wikipedia.org/wiki/Church_encoding#Represent_the_list_using_right_fold
+; 
+; church pair defs:
+(define cpair    (λ (a) (λ (b) (λ (n) (n (a b))))))
+(define cfirst   (λ (p) (p (λ (x) (λ (y) x)))))
+(define csecond  (λ (p) (p (λ (x) (λ (y) y)))))
+(check-eq? (church->nat (cfirst ((cpair c0) c3))) (church->nat (cfirst ((cpair c0) c2))))
+(check-eq? (church->nat (csecond ((cpair c1) c2))) (church->nat (csecond ((cpair c0) c2))))
+;
+; right fold functions:
+(define (ccons a b)  (λ (c) (λ (n) (c a b))))
+; (define (ccons2 a b) ((ccons a) b))
+(define cnil         (λ (c) (λ (n) (n))))
+(define cnil?        (λ (l) ((l (λ (a b) #f)) (λ () #t))))
+(define ccar         (λ (l) ((l (λ (a b) a))  (λ () #f))))
+
+(check-true (cnil? cnil))
+(check-false (cnil? (ccons cnil cnil)))
+(check-false (cnil? (ccons 2 cnil)))
+(check-false ((ccar (ccons not cnil)) #t))
+
+; (define nat90 (cnat 90 ""))
 
 ; churchify recursively walks the AST and converts each expression in the input language (defined above)
 ;   to an equivalent (when converted back via each church->XYZ) expression in the output language (defined above)
 (define (churchify e)
   (match e
-         ; [`(??)  (encode-plus (encode-nat e1 "") (encode-nat e2 ""))]
-         [`(add1 ,(? number? operand))  (encode-succ (encode-nat operand ""))]
-         [_                             (encode-nat e "churchify")]))
+         [`(cons ,e1 '())               (ccons (cnat e1 "") cnil)]
+         ; [`(cons ,e1 '())               ((?? nat90) cnull)]
+         ; [`(cons ,e1 ,e2)               ((?? (cnat e1 "")) (churchify e2))]
+         [(? number? e)                 (cnat e "")]
+         [`(+ ,e1 ,e2)                  ((cplus (churchify e1)) (churchify e2))]
+         [`(add1 ,(? number? operand))  (csucc (cnat operand ""))]
+         [`(add1 ,inner)                (csucc (churchify inner))]
+         [_                             e]))
 
 ; Takes a whole program in the input language, and converts it into an equivalent program in lambda-calc
 (define (church-compile program)
