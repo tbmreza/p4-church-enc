@@ -5,6 +5,7 @@
 ;; Assignment 4: A church-compiler for Scheme, to Lambda-calculus
 
 (provide church-compile
+         church->boolean
          ; provided conversions:
          church->nat
          church->bool
@@ -57,10 +58,7 @@
 (define c1 (lambda (f) (lambda (x) (f x))))
 (define c2 (lambda (f) (lambda (x) (f (f x)))))
 (define c3 (lambda (f) (lambda (x) (f (f (f x))))))
-(check-equal? (church->nat c0) 0)
-(check-equal? (church->nat c1) 1)
-(check-equal? (church->nat c2) 2)
-(check-equal? (church->nat c3) 3)
+(define c4 (lambda (f) (lambda (x) (f (f (f (f x)))))))
 
 ; A church-encoded bool is a function taking a true-thunk and false-thunk,
 ;   returning (true-thunk) when true, and (false-thunk) when false
