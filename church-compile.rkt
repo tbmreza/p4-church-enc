@@ -108,27 +108,24 @@
 
 (check-equal? 3 (length (lex "(ad (ad b))")))
 
-(define (unique vars)
-  (remove-duplicates (lex (format "~a" vars))))
-
-(define (mk-lhs bind-map params)
-  (define vals (map (lambda (x) (hash-ref bind-map x #f)) params))
-  `(lambda (fn) (fn ,@vals)))
-
-(define (lookup2 bind-map op caller)
+(define (lookup bind-map op caller)
   (match (hash-ref bind-map op #f)
     [#f  (churchify op)]
     [v v]))
 
-(define/contract (hash-from binds)
-  (-> list? hash?)
-  (define res (make-immutable-hash
-    (map (lambda (kv) (cons (first kv) (churchify (second kv))))
+(define/contract (hash-from binds outer-bind-map)
+  (-> list? hash? hash?)
+  (define (bind-val v)
+    ; (second kv) might be a symbol that refers the outer binds.
+    (match (hash-ref outer-bind-map v #f)
+      [#f         (churchify v)]
+      [outer-val  outer-val]))
+  (make-immutable-hash
+    (map (lambda (kv) (cons (first kv) (bind-val (second kv))))
 	 binds)))
-  res)
 
 (define (combine m1 m2)
-  (define res (hash-union m1 m2 #:combine/key (lambda (k v1 v2) v2)))
+  (define res (hash-union m1 m2 #:combine/key (lambda (_k _v1 v2) v2)))
   res)
 
 (define (ll body bind-map)
@@ -149,17 +146,17 @@
       (ll `(,op ,arg1 ,(ll arg2 bind-map)) bind-map)]
 
     [`(,(? binary? op) ,arg1 ,arg2)
-      ((lambda (fn) (fn (lookup2 bind-map op "") (lookup2 bind-map arg1 "") (lookup2 bind-map arg2 "")))
+      ((lambda (fn) (fn (lookup bind-map op "") (lookup bind-map arg1 "") (lookup bind-map arg2 "")))
        (lambda (op arg1 arg2) ((op arg1) arg2)))]
 
     [`(,op (,arg ...))
       (ll `(,op ,(ll arg bind-map)) bind-map)]
 
     [`(,op ,arg)
-      ((lambda (fn) (fn (lookup2 bind-map op "") (lookup2 bind-map arg "")))
+      ((lambda (fn) (fn (lookup bind-map op "") (lookup bind-map arg "")))
        (lambda (op arg) (op arg))) ]
 
-    [`(let ,binds2 ,e)                (ll e (combine bind-map (hash-from binds2)))]
+    [`(let ,binds2 ,e)                (ll e (combine bind-map (hash-from binds2 bind-map)))]
 
     [_  '()])
 
@@ -170,29 +167,16 @@
     [`'()                            NIL]
     ['#t                             TRUE]
     ['#f                             FALSE]
-
     [`(if ,b ,then ,els)             ((((churchify b) (lambda () (churchify then))) (lambda () (churchify els))))]
-    [`(ifs ,b ,then ,els)             ((((churchify '#f) (lambda () (churchify then))) (lambda () (churchify els))))]
-
     [(? number? e)                   (cnat e)]
-
-    ; [`(not ,b)                     (NOT (churchify b))]
-    ; [`(not #t)                     '#f]
-    ; [`(not #f)                     '#t]
-    ; [`(not #t)                     FALSE]
-    ; [`(not #f)                     TRUE]
-
     [`(,(? unary? fn) ,arg)          `(,fn ,(churchify arg))]
     [`(,(? binary? fn) ,arg1 '())    `((,fn ,(churchify arg1)) ,NIL)]
     [`(,(? binary? fn) ,arg1 ,arg2)  `((,fn ,(churchify arg1)) ,(churchify arg2))]
-    [`(let ,binds ,e)                (ll e (hash-from binds))]
-    ; [`(let ,binds ,e)                (ll e binds)]
+    [`(let ,binds ,e)                (ll e (hash-from binds (hash)))]
     [_ e]))
 
 (check-true (church->boolean (churchify `(let ([null? ,NULL?])(null? '())))))
 ; (check-false (church->boolean (churchify `(let ([null? ,NULL?][cons ,CONS])(null? (cons 1 (cons 2 (cons 3 '()))))))))
-
-; (check-eq? 4 (church->nat (churchify `(let ([not ,NOT]) (ifs (not #t) 3 4) ))))
 
 (check-false (church->boolean (churchify `(let ([not ,NOT])(not #t)))))
 (check-false ((church->bool (churchify `(let ([not ,NOT])(not #t)))) '()))
@@ -372,46 +356,6 @@
 ;     ; (define fn PLUS)
 ;     ; ((lambda (b) (b (churchify 5))) (lambda (i) ((fn (churchify 2)) (churchify 3))))
 ;
-;     (define (lookup-val k)
-;       (match k
-;         [(? number? k)  (cnat k "")]
-;         [_ c0]))
-;
-;     (define (body-template input-body)
-;       (match input-body
-;         [`(sub1 ,_)  (lambda (i) (PRED i))]
-;         [`(add1 ,_)  (lambda (i) (SUCC i))]
-;         ; Silently return identity lambda.
-;         [_           (lambda (i) i)]))
-;
-;     (define (body-template2 input-body)
-;       (match input-body
-;         [`(add1 ,k)             
-; 	  ((lambda (i) (i (lookup-val k))) (lambda (i) (SUCC i)))]
-;         [`(* ,_ ,_)
-; 	  ((lambda (j) (j c2)) ((lambda (b) (b c4)) (lambda (b) (MUL b))))]
-;         ; Silently return identity lambda.
-;         [_              (lambda (i) i)]))
-;
-;     
-;
-;     ; (add1 b)
-;     ; ...match template
-;     ; (lambda (b) (SUCC b))
-;     ; ...lookup and build
-;     ; (lambda (b) (b c0)) (lambda (b) (SUCC b))
-;
-;     (body-template2 e)
-;
-;     ; ; ok
-;     ; ((lambda (j) (j c2))
-;     ; ;  passer
-;     ; ((lambda (b) (b c4)) (lambda (b) (MUL b))))
-;     ; ;   passer                 template
-;
-;     ; ; ok
-;     ; ((lookup-val 'b)      (body-template e))
-;
 ;     ; (+ b j)
 ;     ; applying here means prefexing a lambda whose body is a looked up value.
 ;     ; (SUCC b)       (lambda (b) (b val)) (lambda (b) (fn b))
@@ -489,17 +433,6 @@
           [* ,MUL])
       ,program)))
 
-(define unchurch church->nat)
-
-; (define prog
-;   '(let ([a 2] [b 3])
-;      (let ([b 5] [c b])
-;        (* a (* b c)))))
-; compiler sees a let expression. it forms an immediately invokable lambda,
-; providing a2b3 values via lhs.
-; at the moment the rhs is uncompiled b5cb let expression.
-; a precompiled let expression can look like this:
-;    ((* a) ((* b) c))
 (check-true (church->boolean (churchify `(let ([not ,NOT]) (not #f)))))
 (check-eq? 6 (church->nat (churchify `(let ([* ,MUL]) (* 2 3)))))
 (check-eq? 4 (church->nat (churchify `(let () (if #t 4 3)))))
@@ -510,23 +443,3 @@
 
 (check-eq? 12 (church->nat (churchify `(let ([b 3][* ,MUL]) (* b 4)))))
 (check-eq? 27 (church->nat (churchify `(let ([b 3][* ,MUL]) (* b (* b 3))))))
-
-; do we want to ll above church with (lambda (b) (b c3)) and get a nat?
-; ((lambda (b) (b c3)) (churchify `(let ([* ,MUL]) (* b 2))))
-; other idea: we enclose it with another let to provide the value of b.
-; (let [b 3] (churchify `(let ([* ,MUL]) (* b 2))))
-; 
-; we can't do the following just yet. but it should be feedable to a lhs.
-; (church->nat (church-compile prog))
-; now as a body, procedure above can be our experimental rhs to feed the following lhs to:
-; <procedure>
-; (,lhs ,rhs) gives us the final result.
-(define prog
-  `(let ([* ,MUL][a 2] [b 3])
-  ; `(let ([a 2] [b 3])
-     (* a (* b b))))
-
-(define compiled (church-compile prog))
-(define cv-comp (eval compiled (make-base-namespace)))
-(define v-comp (unchurch cv-comp))
-(displayln v-comp)

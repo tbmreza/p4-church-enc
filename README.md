@@ -1,6 +1,6 @@
 tests:
 - [x] public-add/            
-- [ ] public-bool2/          
+- [x] public-bool2/          
 - [x] public-list0/
 - [x] public-add1/           
 - [ ] public-curry/          
@@ -15,6 +15,6 @@ tests:
 - [ ] public-length-letrec/  
 - [x] public-zero/
 - [x] public-bool0/          
-- [ ] public-let0/
+- [x] public-let0/
 - [x] public-bool1/          
 - [ ] public-let1/
