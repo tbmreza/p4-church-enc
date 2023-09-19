@@ -1,6 +1,6 @@
 #lang racket
 
-(require rackunit)
+(require rackunit racket/hash)
 ;; Assignment 4: A church-compiler for Scheme, to Lambda-calculus
 
 (provide church-compile
@@ -115,47 +115,52 @@
   (define vals (map (lambda (x) (hash-ref bind-map x #f)) params))
   `(lambda (fn) (fn ,@vals)))
 
-(define (lookup binds op)
-  (define bm (make-immutable-hash
-      (map (lambda (kv) (cons (first kv) (churchify (second kv)))) binds)))
-  (match (hash-ref bm op #f)
+(define (lookup2 bind-map op caller)
+  (match (hash-ref bind-map op #f)
     [#f  (churchify op)]
     [v v]))
 
-(define (ll body binds)
+(define/contract (hash-from binds)
+  (-> list? hash?)
+  (define res (make-immutable-hash
+    (map (lambda (kv) (cons (first kv) (churchify (second kv))))
+	 binds)))
+  res)
 
+(define (combine m1 m2)
+  (define res (hash-union m1 m2 #:combine/key (lambda (k v1 v2) v2)))
+  res)
+
+(define (ll body bind-map)
   (match body
-    ; Looking at binds is unnecessary for some body forms.
     [`'()                 NIL]
     ['#t                  TRUE]
     ['#f                  FALSE]
     [(? number? body)     (cnat body)]
-    ; Others may contain sub bodies.
-    ; generalize for TRUE-generating subbody such as (not #f)
-    [`(if ,b ,then ,els)  ((((ll b binds) (lambda () (churchify then))) (lambda () (churchify els))))]
-    ; unary? performing ll on it means providing values from binds on churchified inner.
+    [`(if ,b ,then ,els)  ((((ll b bind-map) (lambda () (churchify then))) (lambda () (churchify els))))]
     ; immediately invoke ((lambda (fn) (fn op arg)) body)
-    ; [`(,(? unary? op) ,arg)
-
     [`(,(? binary? op) (,arg1 ...) (,arg2 ...))
-      (ll `(,op ,(ll arg1 binds) ,(ll arg2 binds)) binds)]
+      (ll `(,op ,(ll arg1 bind-map) ,(ll arg2 bind-map)) bind-map)]
 
     [`(,(? binary? op) (,arg1 ...) ,arg2)
-      (ll `(,op ,(ll arg1 binds) ,arg2) binds)]
+      (ll `(,op ,(ll arg1 bind-map) ,arg2) bind-map)]
 
     [`(,(? binary? op) ,arg1 (,arg2 ...))
-      (ll `(,op ,arg1 ,(ll arg2 binds)) binds)]
+      (ll `(,op ,arg1 ,(ll arg2 bind-map)) bind-map)]
 
     [`(,(? binary? op) ,arg1 ,arg2)
-      ((lambda (fn) (fn (lookup binds op) (lookup binds arg1) (lookup binds arg2)))
+      ((lambda (fn) (fn (lookup2 bind-map op "") (lookup2 bind-map arg1 "") (lookup2 bind-map arg2 "")))
        (lambda (op arg1 arg2) ((op arg1) arg2)))]
 
     [`(,op (,arg ...))
-      (ll `(,op ,(ll arg binds)) binds)]
+      (ll `(,op ,(ll arg bind-map)) bind-map)]
 
     [`(,op ,arg)
-      ((lambda (fn) (fn (lookup binds op) (lookup binds arg)))
+      ((lambda (fn) (fn (lookup2 bind-map op "") (lookup2 bind-map arg "")))
        (lambda (op arg) (op arg))) ]
+
+    [`(let ,binds2 ,e)                (ll e (combine bind-map (hash-from binds2)))]
+
     [_  '()])
 
   )
@@ -180,12 +185,10 @@
     [`(,(? unary? fn) ,arg)          `(,fn ,(churchify arg))]
     [`(,(? binary? fn) ,arg1 '())    `((,fn ,(churchify arg1)) ,NIL)]
     [`(,(? binary? fn) ,arg1 ,arg2)  `((,fn ,(churchify arg1)) ,(churchify arg2))]
-    [`(let ,binds ,e)                (ll e binds)]
+    [`(let ,binds ,e)                (ll e (hash-from binds))]
+    ; [`(let ,binds ,e)                (ll e binds)]
     [_ e]))
 
-; (check-eq? 8 (church->nat (churchify `(let ([b 6][ad ,SUCC]) (ad (ad b))))))
-; (check-eq? 18 (church->nat (churchify `(let ([b 9][* ,MUL]) (* b 2)))))
-; (check-eq? 10 (church->nat (churchify `(let ([b 2][add1 ,SUCC][* ,MUL]) (* b (add1 4))))))
 (check-true (church->boolean (churchify `(let ([null? ,NULL?])(null? '())))))
 ; (check-false (church->boolean (churchify `(let ([null? ,NULL?][cons ,CONS])(null? (cons 1 (cons 2 (cons 3 '()))))))))
 
@@ -497,9 +500,6 @@
 ; at the moment the rhs is uncompiled b5cb let expression.
 ; a precompiled let expression can look like this:
 ;    ((* a) ((* b) c))
-(define prog
-  '(* a (* b c)))
-
 (check-true (church->boolean (churchify `(let ([not ,NOT]) (not #f)))))
 (check-eq? 6 (church->nat (churchify `(let ([* ,MUL]) (* 2 3)))))
 (check-eq? 4 (church->nat (churchify `(let () (if #t 4 3)))))
@@ -511,11 +511,6 @@
 (check-eq? 12 (church->nat (churchify `(let ([b 3][* ,MUL]) (* b 4)))))
 (check-eq? 27 (church->nat (churchify `(let ([b 3][* ,MUL]) (* b (* b 3))))))
 
-; (church->nat (churchify `(let ([b 6][add1 ,SUCC]) (add1 b))))
-; (church->nat (churchify `(let ([b 6][add1 ,SUCC]) (add1 2))))
-
-; (church->nat (churchify `(let ([b 6][ad ,SUCC]) (ad b))))
-
 ; do we want to ll above church with (lambda (b) (b c3)) and get a nat?
 ; ((lambda (b) (b c3)) (churchify `(let ([* ,MUL]) (* b 2))))
 ; other idea: we enclose it with another let to provide the value of b.
@@ -526,7 +521,12 @@
 ; now as a body, procedure above can be our experimental rhs to feed the following lhs to:
 ; <procedure>
 ; (,lhs ,rhs) gives us the final result.
+(define prog
+  `(let ([* ,MUL][a 2] [b 3])
+  ; `(let ([a 2] [b 3])
+     (* a (* b b))))
 
-; (define compiled (church-compile prog))
-; (define cv-comp (eval compiled (make-base-namespace)))
-; (define v-comp (unchurch cv-comp))
+(define compiled (church-compile prog))
+(define cv-comp (eval compiled (make-base-namespace)))
+(define v-comp (unchurch cv-comp))
+(displayln v-comp)
