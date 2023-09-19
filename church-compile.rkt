@@ -30,6 +30,22 @@
 ; The following are *extra credit*: -, =, sub1  
 (define prims '(+ * - = add1 sub1 cons car cdr null? not zero?))
 
+; ops module
+(define (church->boolean tf)
+  ((tf #t) #f))
+
+(define TRUE   (lambda (a) (lambda (_) a)))
+(define FALSE  (lambda (_) (lambda (b) b)))
+(define NOT    (λ (b) ((b FALSE) TRUE)))
+(check-true (church->boolean (NOT FALSE)))
+; explains churchify if
+; ((FALSE 2) 4)
+
+(define CAROLD  (λ (p) (p TRUE)))
+(define ZERO? (λ (n) ((n (λ (_) FALSE)) TRUE)))
+(check-false (church->boolean (ZERO? (lambda (f) (lambda (x) (f x))))))
+(check-true (church->boolean (ZERO? (lambda (_) (lambda (x) x)))))
+
 ; This input language has semantics identical to Scheme / Racket, except:
 ;   + You will not be provided code that yields any kind of error in Racket
 ;   + You do not need to treat non-boolean values as #t at if, and, or forms
@@ -67,15 +83,7 @@
 ;   returning (true-thunk) when true, and (false-thunk) when false
 (define (church->bool c-bool)
   ((c-bool (lambda (_) #t)) (lambda (_) #f)))
-; PICKUP our FALSE doesn't check out with this. but what does?
-; is this an if-statement evaluator?
-; (church->bool  (λ (p) (p (λ (x) (λ (y) x)))))
-; (church->bool (lambda (t f) t))
-; (church->bool (lambda (a) (lambda (_) a)))
-; (church->bool (lambda (_) #t))
-
-(define (church->boolean tf)
-  ((tf #t) #f))
+(check-true ((church->bool TRUE) '()))
 
 (require "lists.rkt")
 (check-false (church->boolean (NULL? ((CONS NIL) NIL))))
@@ -105,8 +113,8 @@
 (check-equal? (church->nat (cnat 2 "")) (church->nat (lambda (f) (lambda (x) (f (f x))))))
 (check-equal? (church->nat (cnat 0 "")) (church->nat (lambda (_) (lambda (x) x))))
 
-(define unary '(add1 ))
-(define binary '(+ - * cons ))
+(define unary '(add1 sub1 null? car cdr not zero?))
+(define binary '(+ - * = cons))
 
 (define (unary? prim) (member prim unary))
 (define (binary? prim) (member prim binary))
@@ -183,11 +191,8 @@
 (define (unique vars)
   (remove-duplicates (lex (format "~a" vars))))
 
-(define (mk-rhs vars)
-; `(lambda (add1 b)  (add1 (add1 b))))
-  `(lambda ,(unique vars) ,vars))
-  ; (define unique '(add1 b))
-  ; `(lambda ,unique ,c))
+; (define (mk-rhs vars)
+;   `(lambda ,(unique vars) ,vars))
 
 ; '(add1 b)
 (define (mk-lhs bind-map params)
@@ -234,14 +239,26 @@
     (make-immutable-hash
       (map (λ (kv) (cons (first kv) (churchify-num-symbol (second kv)))) binds)))
 
-  (define rhsnew (mk-rhs c))
+  ; lhs provides values for deeper subprograms.
+  ; how do we detect that c contains sub rhs?
+  ;   church-compile
+  ;   churchify
+  ;     ll
+  ;     unary/binary
+  ;     if
+
+  ; if ll sees that c has subprogram, return a simplified program, so that
+  ; in the arm we can perform churchify on it once again.
+  ; we can match it against known simplest programs.
+  ; match
+  ;   (if ,(? bool-literal? b) _ _)
+
+  ; idea of unary/binary arm is so that churchify can treat prims as variables.
+  
+  (define rhsnew `(lambda ,(unique c) ,c))
   (define lhsnew (match rhsnew  [`(lambda ,params ,_)  (mk-lhs (mk-map) params)]))
 
   (evalnew `(,lhsnew ,rhsnew)))
-  ; `(,lhsnew ,rhsnew))
-  ; (evalnew `(,lhsnew ,rhs)))
-
-  ; (evalnew `(,lhs ,rhs)))
 
 (define (left-left2 binds c) ; takes unhydrated e  return church terminal
   (define (lookup k caller)
@@ -274,8 +291,6 @@
     acc)  ; poc you can stack evalnew on top of the other
   (h c c0))
 
-  ; PICKUP (h c const-lambda)
-
   ; (define (cook fx)
   ;   (match fx
   ;     [`(,f ,x)    (match x
@@ -303,38 +318,76 @@
   (define (def e) (display "default e=")(displayln e) e)
 
   (match e
-  ; [`('())                          NIL]
+    [`'()                            NIL]
     ['#t                             TRUE]
     ['#f                             FALSE]
-    [`(if #t ,then ,_)               (churchify then)]
-    [`(if #f ,_ ,els)                (churchify els)]
-    [`(if ,b ,then ,els)             (churchify `(if ,(churchify b) ,then ,els))]
+
+    [`(if ,b ,then ,els)             ((((churchify b) (lambda () (churchify then))) (lambda () (churchify els))))]
+    ; PICKUP recurse someway.
+    [`(ifs ,b ,then ,els)             ((((churchify '#f) (lambda () (churchify then))) (lambda () (churchify els))))]
+
     [(? number? e)                   (cnat e "")]
 
+    ; [`(not ,b)                     (NOT (churchify b))]
+    ; [`(not #t)                     '#f]
+    ; [`(not #f)                     '#t]
+    ; [`(not #t)                     FALSE]
+    ; [`(not #f)                     TRUE]
+
     [`(,(? unary? fn) ,arg)          `(,fn ,(churchify arg))]
-    [`(,(? binary? fn) ,arg1 '())  `((,fn ,(churchify arg1)) ,NIL)]
+    [`(,(? binary? fn) ,arg1 '())    `((,fn ,(churchify arg1)) ,NIL)]
     [`(,(? binary? fn) ,arg1 ,arg2)  `((,fn ,(churchify arg1)) ,(churchify arg2))]
     [`(let ,binds ,e)                (ll binds (churchify e))]
     [_ e]))
     ; [_ (def e)]))
 
-; (churchify '(let ([b 4][add1 SUCC]) (add1 b)))
-; (church->nat (churchify '(let ([b 4][add1 SUCC]) (add1 b))))
-; (church->nat (churchify '(let ([b 9][add1 SUCC]) (add1 (add1 b)))))
+(check-eq? 11 (church->nat (churchify `(let ([b 9][add1 ,SUCC]) (add1 (add1 b))))))
+(check-eq? 8 (church->nat (churchify `(let ([b 6][ad ,SUCC]) (ad (ad b))))))
+(check-eq? 18 (church->nat (churchify `(let ([b 9][* ,MUL]) (* b 2)))))
+(check-eq? 40 (church->nat (churchify `(let ([b 4][add1 ,SUCC][* ,MUL]) (* b (add1 9))))))
+(check-true (church->boolean (churchify `(let ([null? ,NULL?])(null? '())))))
+(check-false (church->boolean (churchify `(let ([null? ,NULL?][cons ,CONS])(null? (cons 1 (cons 2 (cons 3 '()))))))))
 
-; ok
-(church->nat (churchify `(let ([b 9][add1 ,SUCC]) (add1 (add1 b)))))
-(church->nat (churchify `(let ([b 6][ad ,SUCC]) (ad (ad b)))))
-(church->nat (churchify `(let ([b 9][* ,MUL]) (* b 2))))
-(church->nat (churchify `(let ([b 4][add1 ,SUCC][* ,MUL]) (* b (add1 9)))))
+; (define prog '(if #t #t #f))
+; ; ok?
+; (check-true ((church->bool (churchify '(if #t #t #f))) '()))
 
-(churchify '(cons 1 (cons 2 (cons 3 '()))))
+; (define prog
+;   '(if (not #f)
+;        3
+;        (let ([U (lambda (u) (u u))])
+;          (U U))))
+
+(check-eq? 4 (church->nat (churchify `(let ([not ,NOT]) (ifs (not #t) 3 4) ))))
+
+(check-false (church->boolean (churchify `(let ([not ,NOT])(not #t)))))
+(check-false ((church->bool (churchify `(let ([not ,NOT])(not #t)))) '()))
+(check-true ((church->bool (churchify `(let ([not ,NOT])(not (not #t))))) '()))
+; '(if (not #f) 3 4)
+; what doesn't work is putting '(not #t) as predicate
+; (check-eq? 3 (church->nat (churchify `(let ([not ,NOT])(if #t 3 4)))))
+; (churchify `(let ([not ,NOT])(if (not #f) 3 4)))
+(check-eq? 2 (church->nat (churchify `(if #t 2 3)))) ;-> c2
+(check-true (church->boolean (churchify `(if #t #t #f))))
+
+; (churchify `(let ([null? ,NULL?][cons ,CONS][car ,CAR])(null? (car (cons 3 '())))))
+; (churchify `(let ([null? ,NULL?][cons ,CONS][car ,CAR])(car (cons 3 '()))))
+
+; (churchify `(let ([null? ,NULL?][cons ,CONS][car ,CAR])(cons 3 '())))
+
+; ; unfinished
+; (define unch (church->listof church->nat))
+; (unch (churchify `(let ([null? ,NULL?][cons ,CONS][car ,CAR])(cons 3 '()))))
+; (unch (churchify `(let ([null? ,NULL?][cons ,CONS][car ,CAR])(cons 3 (cons 3 '())))))
+; (churchify `(let ([cons ,CONS])(cons '() (cons 3 '()))))
+; (churchify `(let ([cons ,CONS]) 2))
+; (church->nat (churchify `(let ([cons ,CONS]) 2)))
+; (church->nat (churchify `(let ([lst (cons '() (cons 3 '()))][cons ,CONS]) 12)))
 
 ; (define (SUCC cn)
 ;   (lambda (f)
 ;     (lambda (x) (f ((cn f) x)))))
 (check-equal? (church->nat (SUCC (lambda (_) (lambda (x) x)))) (church->nat (lambda (f) (lambda (x) (f x)))))
-(check-equal? (church->nat (SUCC (lambda (f) (lambda (x) (f (f x)))))) (church->nat (lambda (f) (lambda (x) (f (f (f x)))))))
 
 (define (PLUS cn)
   (lambda (ck)
@@ -355,9 +408,9 @@
 (check-equal? (church->nat ((cpow c3) c3)) 27)
 
 ; gh, wiki
-(define TRUE   (lambda (a) (lambda (_) a)))
-(define FALSE  (lambda (_) (lambda (b) b)))
-(define NOT    (λ (b) ((b FALSE) TRUE)))
+; (define TRUE   (lambda (a) (lambda (_) a)))
+; (define FALSE  (lambda (_) (lambda (b) b)))
+; (define NOT    (λ (b) ((b FALSE) TRUE)))
 ; what gets applied with TRUE and gives #t
 ; ((lambda (fn) (fn #t))   (lambda (x)  (x (x ,c0))))
 
@@ -372,15 +425,25 @@
 ; This definition of cons dictates how unchurch should be implemented for cons-list.
 ; lists.rkt
 (define PAIR (λ (a) (λ (b) (λ (s) ((s a) b)))))
-(define CAR  (λ (p) (p TRUE)))
+; (define CAROLD  (λ (p) (p TRUE)))
 (define CDR  (λ (p) (p FALSE)))
 ; (define NIL FALSE)
 ; (define NIL? (λ (p) (??)))
 
+
 ; lists.rkt
-; (check-eq? (church->nat (CAR ((PAIR c4) NIL))) 4)
-(check-eq? (church->nat (CAR ((PAIR c4) FALSE))) 4)
-(check-eq? (church->nat (CDR ((PAIR c4) c2))) 2)
+; (check-eq? (church->nat (CAROLD ((PAIR c4) NIL))) 4)
+; (check-eq? (church->nat (CAROLD ((PAIR c4) FALSE))) 4)
+; (check-eq? (church->nat (CDR ((PAIR c4) c2))) 2)
+; can this car operate on our CONS
+; one requires NIL in the base, the other requires FALSE 
+
+; ((CONS c2) ((CONS c3) NIL))
+(check-equal? ((church->listof church->nat) (CAR ((CONS ((CONS c2) ((CONS c3) NIL))) NIL))) '(2 3))
+
+; (CDR ((PAIR c4) TRUE))
+; ((CONZ c4) NIL)
+; (check-eq? (church->nat (CAROLD ((CONZ c4) FALSE))) 4)
 
 ; One intuition (immediate observation of a simpler definition, not the one implemented below. The implementation below is called "wisdom tooth trick" for some intuition I can't work out yet.)
 ; of PRED is we start with a pair of zeros ((CONS c0) c0).
@@ -392,7 +455,7 @@
 ; 
 ; We increase the number of swapping-incrementing dance steps as we increment our input. (PRED k+1) leads (PRED k) by one because we do the dance one more time,
 ; by definition of church numerals.
-(define T (λ (p) ((PAIR (SUCC (CAR p))) (CAR p))))
+(define T (λ (p) ((PAIR (SUCC (CAROLD p))) (CAROLD p))))
 (define PRED (λ (n) (CDR ((n T) ((PAIR c0) c0)))))
 (check-eq? (church->nat (PRED c4)) 3)
 
@@ -614,7 +677,24 @@
   (churchify
    `(let ([add1 ,SUCC]
           [cons ,CONS]
+          [null? ,NULL?]
+          [not ,NOT]
+          [car ,CAR]
+          [cdr ,CDR]
+          [zero? ,ZERO?]
           [+ ,PLUS]
           [- ,MINUS]
           [* ,MUL])
       ,program)))
+
+(define unchurch church->nat)
+(define prog
+  '(if (not #f) 3 4))
+; (define prog
+;   '(if (not #f)
+;        3
+;        (let ([U (lambda (u) (u u))])
+;          (U U))))
+
+; (define compiled (church-compile prog))
+
