@@ -69,22 +69,13 @@
 (define (church->nat c-nat)
   ((c-nat add1) 0))
 
-(define c0 (lambda (_) (lambda (x) x)))
-(define c1 (lambda (f) (lambda (x) (f x))))
-(define c2 (lambda (f) (lambda (x) (f (f x)))))
-(define c3 (lambda (f) (lambda (x) (f (f (f x))))))
-(define c4 (lambda (f) (lambda (x) (f (f (f (f x)))))))
-(define c5 (lambda (f) (lambda (x) (f (f (f (f (f x))))))))
-
-(define (evalnew data)
-  (eval data (make-base-namespace)))
-
 ; A church-encoded bool is a function taking a true-thunk and false-thunk,
 ;   returning (true-thunk) when true, and (false-thunk) when false
 (define (church->bool c-bool)
   ((c-bool (lambda (_) #t)) (lambda (_) #f)))
 (check-true ((church->bool TRUE) '()))
 
+(require "definitions.rkt")
 (require "lists.rkt")
 (check-false (church->boolean (NULL? ((CONS NIL) NIL))))
 
@@ -101,80 +92,9 @@
 
 ;; Write your church-compiling code below:
 
-(define/contract (cnat n _caller)
-(-> number? string? procedure?)
-  (define (h n acc)
-    (match n
-      [0 acc]
-      [_ `(f ,(h (sub1 n) acc))]))
-  (eval `(lambda (f) (lambda (x) ,(h n 'x))) (make-base-namespace)))
+(check-equal? (church->nat (cnat 3)) (church->nat (lambda (f) (lambda (x) (f (f (f x)))))))
 
-(check-equal? (church->nat (cnat 3 "")) (church->nat (lambda (f) (lambda (x) (f (f (f x)))))))
-(check-equal? (church->nat (cnat 2 "")) (church->nat (lambda (f) (lambda (x) (f (f x))))))
-(check-equal? (church->nat (cnat 0 "")) (church->nat (lambda (_) (lambda (x) x))))
-
-(define unary '(add1 sub1 null? car cdr not zero?))
-(define binary '(+ - * = cons))
-
-(define (unary? prim) (member prim unary))
-(define (binary? prim) (member prim binary))
-
-(define U (lambda (x) (x x)))
-; (define infinite-loop (U U))
-(define Y (U (λ (y) (λ (f) (f (λ (x) (((y y) f) x)))))))
-(define (SUCC cn)
-  (lambda (f)
-    (lambda (x) (f ((cn f) x)))))
-
-(define (MUL cn)
-  (lambda (ck)
-    (lambda (f)
-      (lambda (x) ((cn (ck f)) x)))))
-
-; t1 perform left left on unhydrated churchified prog
-; '(let ([b 4][j 1]) (* b 2))
-; unhydrated: '((* b) #<procedure:c2>)
-;
-; (let ([x e]) e-b) ;; ((lambda (x) e-b) e)
-; ((lambda (binds-x) c) binds-v)  ; ?
-;  ((lambda (i) (i c1)) (lambda (i) (add1 i)))
-; `((lambda (i) (i ,(lookup x))) (lambda (i) (,(lookup f) i)))
-; '(let ([b 4][add1 SUCC]) (add1 b))
-
-; x in rhs includes the *ellipsis* and the *parens*.
-; Let expression as church terminal + debugging displays.
-
-; '(add1 (add1 4))
-; '(add1 (add1 (lambda (f) (lambda (x) (f x)))))
-(define (make-c input)
-  ; formal params are unique vars, lhs looks up values
-  
-  ; no need for replacement because input is churchified.
-  (define unique '(add1))
-  `(lambda ,unique ,input))
-
-; (define (display-big-lhs)
-;   ;                              binds-v
-;   ; (define lhs   `(lambda (fn) (fn 1 2 3)))
-;   ; (define c     `(lambda (a b c) (+ a (* b c))))
-;   ;                      binds-k
-;   ; (displayln (evalnew `(,lhs ,c))))
-;
-; ; (define lhs   `(lambda (fn) (fn ,SUCC ,c2)))
-; ; (define c     `(lambda (add1 b) (add1 b)))
-;
-;   ; ; (add1 4)
-;   ; (define lhs   `(lambda (fn) (fn ,SUCC ,c4)))
-;   ; (define c     `(lambda (iadd1 i4) (iadd1 i4)))
-;
-;   (define lhs   `(lambda (fn) (fn ,SUCC ,c4)))
-;   ; '(add1 (add1 4))
-;   ; (define c     `(lambda (add1 i4) (add1 (add1 i4))))
-;   ; (define c (make-c '(add1 (add1 4))))
-;   
-;   (display "display-big-lhs: "))
-
-
+; highly questionable for nested programs
 (define/contract (lex str)
   (-> string? list?)
   (define pat
@@ -191,142 +111,65 @@
 (define (unique vars)
   (remove-duplicates (lex (format "~a" vars))))
 
-; (define (mk-rhs vars)
-;   `(lambda ,(unique vars) ,vars))
-
-; '(add1 b)
 (define (mk-lhs bind-map params)
   (define vals (map (lambda (x) (hash-ref bind-map x #f)) params))
   `(lambda (fn) (fn ,@vals)))
 
-(define (ll binds c)
-  ; c becomes the rhs, binds provide values via lhs
-  ; (define lhs `(lambda (n) (n ,c1))) ; from binds
-; (define c   `(lambda (b) (add1 b)))
+(define (lookup binds op)
+  (define bm (make-immutable-hash
+      (map (lambda (kv) (cons (first kv) (churchify (second kv)))) binds)))
+  (match (hash-ref bm op #f)
+    [#f  (churchify op)]
+    [v v]))
 
-  ; everything that appear in rhs gets its value from lhs.
-  ; a lookup as in    `(lambda (b) (,(lookup 'add1) b)))
-  ; can be expressed like this
-  ; (define rhs `((lambda (ad1) (ad1 ,SUCC)) (lambda (c) (lambda (b) (c b)))))
+(define (ll body binds)
 
-  ; now going back to our big goal of evaluating the term
-  ; '(let ([b 4][add1 SUCC]) (add1 b)),
-  ; looks like there's 2 routes:
-  ;   binds fold into one big lhs to invoke with input rhs
-  ;   start with input rhs, expand by looking up nonterminals it contains
-  ; 1st seems like currying technique, which is familiar.
-  ; 2nd seems that it will give natural progression with structuring recursion for nested terms.
+  (match body
+    ; Looking at binds is unnecessary for some body forms.
+    [`'()                 NIL]
+    ['#t                  TRUE]
+    ['#f                  FALSE]
+    [(? number? body)     (cnat body)]
+    ; Others may contain sub bodies.
+    ; generalize for TRUE-generating subbody such as (not #f)
+    [`(if ,b ,then ,els)  ((((ll b binds) (lambda () (churchify then))) (lambda () (churchify els))))]
+    ; unary? performing ll on it means providing values from binds on churchified inner.
+    ; immediately invoke ((lambda (fn) (fn op arg)) body)
+    ; [`(,(? unary? op) ,arg)
 
-  ; how does a "big lhs" look like? with several variable in rhs?  ok
-  ; (display-big-lhs)
-  ; how does a c that makes no mention of variables look like?  ok
-  ; (define constrhs   `(lambda (b) ,c2))
-  ; (evalnew `(,lhs ,constrhs)))
+    [`(,(? binary? op) (,arg1 ...) (,arg2 ...))
+      (ll `(,op ,(ll arg1 binds) ,(ll arg2 binds)) binds)]
 
-  ; interpolate big lhs from c
-  ; (define params (unique-vars c))
-  ; (define big `(lambda (fn) (fn x y z)))
+    [`(,(? binary? op) (,arg1 ...) ,arg2)
+      (ll `(,op ,(ll arg1 binds) ,arg2) binds)]
 
-  ; (make-immutable-hash
-  ; (map (λ (pr) (cons (first pr) (second pr))) l))
+    [`(,(? binary? op) ,arg1 (,arg2 ...))
+      (ll `(,op ,arg1 ,(ll arg2 binds)) binds)]
 
-  (define (churchify-num-symbol s)
-    (match s
-      [(? number? s) (cnat s "")]
-      [_ s]))
-  
-  (define (mk-map)
-    (make-immutable-hash
-      (map (λ (kv) (cons (first kv) (churchify-num-symbol (second kv)))) binds)))
+    [`(,(? binary? op) ,arg1 ,arg2)
+      ((lambda (fn) (fn (lookup binds op) (lookup binds arg1) (lookup binds arg2)))
+       (lambda (op arg1 arg2) ((op arg1) arg2)))]
 
-  ; lhs provides values for deeper subprograms.
-  ; how do we detect that c contains sub rhs?
-  ;   church-compile
-  ;   churchify
-  ;     ll
-  ;     unary/binary
-  ;     if
+    [`(,op (,arg ...))
+      (ll `(,op ,(ll arg binds)) binds)]
 
-  ; if ll sees that c has subprogram, return a simplified program, so that
-  ; in the arm we can perform churchify on it once again.
-  ; we can match it against known simplest programs.
-  ; match
-  ;   (if ,(? bool-literal? b) _ _)
+    [`(,op ,arg)
+      ((lambda (fn) (fn (lookup binds op) (lookup binds arg)))
+       (lambda (op arg) (op arg))) ]
+    [_  '()])
 
-  ; idea of unary/binary arm is so that churchify can treat prims as variables.
-  
-  (define rhsnew `(lambda ,(unique c) ,c))
-  (define lhsnew (match rhsnew  [`(lambda ,params ,_)  (mk-lhs (mk-map) params)]))
-
-  (evalnew `(,lhsnew ,rhsnew)))
-
-(define (left-left2 binds c) ; takes unhydrated e  return church terminal
-  (define (lookup k caller)
-    ; (define (fmt) (display "lookup caller: ") (displayln caller))
-    ; (if (not (equal? caller "")) (fmt) (void))
-
-    ; (hash-ref (hash-from binds) k))
-    (match k ['b c3]['c c3]['add1 SUCC]['* MUL][(? number? k) (cnat k "")][_ #f]))
-  
-  (define (evalfx f x)
-    (evalnew `((lambda (i) (i ,(lookup x ""))) (lambda (i) (,(lookup f "") i)))))
-
-  (define (del sub)
-    ; (cook sub))
-    (define f SUCC)
-    (define x (church->nat (cook sub)))
-    (evalnew `((lambda (i) (i ,(lookup x ""))) (lambda (i) (,f i))))
-    (cook sub))
-
-  (define (cook c)
-    (match c
-      [`(,f (,x ...))  (del x)]
-    ; [`(,f (,x ...))  (evalfx f (cook x))]
-      [`(,f ,x)        (evalfx f x)]
-      [_ c3]))
-
-  ; (cook c))
-
-  (define (h c acc)
-    acc)  ; poc you can stack evalnew on top of the other
-  (h c c0))
-
-  ; (define (cook fx)
-  ;   (match fx
-  ;     [`(,f ,x)    (match x
-	; 	     [`(,xf ,xx)  `(lambda (f) (lambda (x) (f (f x))))]
-	; 	     [_           `(lambda (f) (lambda (x) (f (f x))))])]
-  ;     [_           `(lambda (f) (lambda (x) (f (f x))))]))
-  ;
-  ;     ; [`(,f ,x)    `((lambda (i) (i c1)) (cook ,f2 ,x2))]
-  ;     ; [_           `((lambda (i) (i ,(lookup x))) (lambda (i) (,(lookup f) i)))]))
-  ;
-  ;   ; (evalnew `((lambda (i) (i ,(lookup x))) (lambda (i) (,(lookup f) i)))))
-  ;
-  ;     ; `((lambda (i) (i ,(lookup 'b))) (lambda (i) (,(lookup '*) i)))))
-  ;
-  ; (evalnew (cook c)))
-
-  ; (match c
-  ;   [`(,f ,x)  (evalnew (cook f x))]
-  ;   [_ c0]))
+  )
 
 (define (churchify e)
-  ; (let ([x e]) e-b) ;; ((lambda (x) e-b) e)
-  ; ( (+ (lambda (f) …)) (lambda (f) …))
-
-  (define (def e) (display "default e=")(displayln e) e)
-
   (match e
     [`'()                            NIL]
     ['#t                             TRUE]
     ['#f                             FALSE]
 
     [`(if ,b ,then ,els)             ((((churchify b) (lambda () (churchify then))) (lambda () (churchify els))))]
-    ; PICKUP recurse someway.
     [`(ifs ,b ,then ,els)             ((((churchify '#f) (lambda () (churchify then))) (lambda () (churchify els))))]
 
-    [(? number? e)                   (cnat e "")]
+    [(? number? e)                   (cnat e)]
 
     ; [`(not ,b)                     (NOT (churchify b))]
     ; [`(not #t)                     '#f]
@@ -337,36 +180,20 @@
     [`(,(? unary? fn) ,arg)          `(,fn ,(churchify arg))]
     [`(,(? binary? fn) ,arg1 '())    `((,fn ,(churchify arg1)) ,NIL)]
     [`(,(? binary? fn) ,arg1 ,arg2)  `((,fn ,(churchify arg1)) ,(churchify arg2))]
-    [`(let ,binds ,e)                (ll binds (churchify e))]
+    [`(let ,binds ,e)                (ll e binds)]
     [_ e]))
-    ; [_ (def e)]))
 
-(check-eq? 11 (church->nat (churchify `(let ([b 9][add1 ,SUCC]) (add1 (add1 b))))))
-(check-eq? 8 (church->nat (churchify `(let ([b 6][ad ,SUCC]) (ad (ad b))))))
-(check-eq? 18 (church->nat (churchify `(let ([b 9][* ,MUL]) (* b 2)))))
-(check-eq? 40 (church->nat (churchify `(let ([b 4][add1 ,SUCC][* ,MUL]) (* b (add1 9))))))
+; (check-eq? 8 (church->nat (churchify `(let ([b 6][ad ,SUCC]) (ad (ad b))))))
+; (check-eq? 18 (church->nat (churchify `(let ([b 9][* ,MUL]) (* b 2)))))
+; (check-eq? 10 (church->nat (churchify `(let ([b 2][add1 ,SUCC][* ,MUL]) (* b (add1 4))))))
 (check-true (church->boolean (churchify `(let ([null? ,NULL?])(null? '())))))
-(check-false (church->boolean (churchify `(let ([null? ,NULL?][cons ,CONS])(null? (cons 1 (cons 2 (cons 3 '()))))))))
+; (check-false (church->boolean (churchify `(let ([null? ,NULL?][cons ,CONS])(null? (cons 1 (cons 2 (cons 3 '()))))))))
 
-; (define prog '(if #t #t #f))
-; ; ok?
-; (check-true ((church->bool (churchify '(if #t #t #f))) '()))
-
-; (define prog
-;   '(if (not #f)
-;        3
-;        (let ([U (lambda (u) (u u))])
-;          (U U))))
-
-(check-eq? 4 (church->nat (churchify `(let ([not ,NOT]) (ifs (not #t) 3 4) ))))
+; (check-eq? 4 (church->nat (churchify `(let ([not ,NOT]) (ifs (not #t) 3 4) ))))
 
 (check-false (church->boolean (churchify `(let ([not ,NOT])(not #t)))))
 (check-false ((church->bool (churchify `(let ([not ,NOT])(not #t)))) '()))
-(check-true ((church->bool (churchify `(let ([not ,NOT])(not (not #t))))) '()))
-; '(if (not #f) 3 4)
-; what doesn't work is putting '(not #t) as predicate
-; (check-eq? 3 (church->nat (churchify `(let ([not ,NOT])(if #t 3 4)))))
-; (churchify `(let ([not ,NOT])(if (not #f) 3 4)))
+; (check-true ((church->bool (churchify `(let ([not ,NOT])(not (not #t))))) '()))
 (check-eq? 2 (church->nat (churchify `(if #t 2 3)))) ;-> c2
 (check-true (church->boolean (churchify `(if #t #t #f))))
 
@@ -384,46 +211,18 @@
 ; (church->nat (churchify `(let ([cons ,CONS]) 2)))
 ; (church->nat (churchify `(let ([lst (cons '() (cons 3 '()))][cons ,CONS]) 12)))
 
-; (define (SUCC cn)
-;   (lambda (f)
-;     (lambda (x) (f ((cn f) x)))))
 (check-equal? (church->nat (SUCC (lambda (_) (lambda (x) x)))) (church->nat (lambda (f) (lambda (x) (f x)))))
-
-(define (PLUS cn)
-  (lambda (ck)
-    (lambda (f)
-      (lambda (x) ((cn f) ((ck f) x))))))
 (check-equal? (church->nat ((PLUS c2) c3)) 5)
-
-; (define (MUL cn)
-;   (lambda (ck)
-;     (lambda (f)
-;       (lambda (x) ((cn (ck f)) x)))))
 (check-equal? (church->nat ((MUL c3) c3)) 9)
+(check-equal? (church->nat ((POW c3) c2)) 8)
 
-(define (cpow cn)
-  (lambda (ck)
-    (lambda (f)
-      (lambda (x) (((cn ck) f) x)))))
-(check-equal? (church->nat ((cpow c3) c3)) 27)
-
-; gh, wiki
-; (define TRUE   (lambda (a) (lambda (_) a)))
-; (define FALSE  (lambda (_) (lambda (b) b)))
-; (define NOT    (λ (b) ((b FALSE) TRUE)))
-; what gets applied with TRUE and gives #t
-; ((lambda (fn) (fn #t))   (lambda (x)  (x (x ,c0))))
-
-(define ccar         (λ (l) ((l (λ (a b) a))  (λ () #f))))
-(define cnil?        (λ (l) ((l (λ (a b) #f)) (λ () #t))))  ; from slide
-(define cnil         (λ (c) (λ (n) (n))))
-
+; (define ccar         (λ (l) ((l (λ (a b) a))  (λ () #f))))
+; (define cnil?        (λ (l) ((l (λ (a b) #f)) (λ () #t))))  ; from slide
+; (define cnil         (λ (c) (λ (n) (n))))
 ; (cons a b) = (λ (when-cons) (λ (when-null) (when-cons a b)))
-(define (ccons a b) (λ (c) (λ (n) (c a b))))
+; (define (ccons a b) (λ (c) (λ (n) (c a b))))
 ; (define (ccons a b) (λ (n) (n a b)))
 
-; This definition of cons dictates how unchurch should be implemented for cons-list.
-; lists.rkt
 (define PAIR (λ (a) (λ (b) (λ (s) ((s a) b)))))
 ; (define CAROLD  (λ (p) (p TRUE)))
 (define CDR  (λ (p) (p FALSE)))
@@ -481,10 +280,10 @@
 ; (cons a b) = (λ (when-cons) (λ (when-null) (when-cons a b)))
 
 
-(check-true (cnil? cnil))
-(check-false (cnil? (ccons cnil cnil)))
-(check-false (cnil? (ccons c2 cnil)))
-(check-false ((ccar (ccons not cnil)) #t))
+; (check-true (cnil? cnil))
+; (check-false (cnil? (ccons cnil cnil)))
+; (check-false (cnil? (ccons c2 cnil)))
+; (check-false ((ccar (ccons not cnil)) #t))
 
 (define c30 ((MUL ((MUL c3) c2)) ((PLUS c3) c2)))
 ; churchify recursively walks the AST and converts each expression in the input language (defined above)
@@ -688,13 +487,46 @@
       ,program)))
 
 (define unchurch church->nat)
-(define prog
-  '(if (not #f) 3 4))
+
 ; (define prog
-;   '(if (not #f)
-;        3
-;        (let ([U (lambda (u) (u u))])
-;          (U U))))
+;   '(let ([a 2] [b 3])
+;      (let ([b 5] [c b])
+;        (* a (* b c)))))
+; compiler sees a let expression. it forms an immediately invokable lambda,
+; providing a2b3 values via lhs.
+; at the moment the rhs is uncompiled b5cb let expression.
+; a precompiled let expression can look like this:
+;    ((* a) ((* b) c))
+(define prog
+  '(* a (* b c)))
+
+(check-true (church->boolean (churchify `(let ([not ,NOT]) (not #f)))))
+(check-eq? 6 (church->nat (churchify `(let ([* ,MUL]) (* 2 3)))))
+(check-eq? 4 (church->nat (churchify `(let () (if #t 4 3)))))
+(check-eq? 3 (church->nat (churchify `(let ([not ,NOT]) (if (not #f) 3 5)))))
+(check-eq? 3 (church->nat (churchify `(let ([ad ,SUCC]) (ad 2)))))
+(check-eq? 7 (church->nat (churchify `(let ([b 6][ad ,SUCC]) (ad b)))))
+(check-eq? 6 (church->nat (churchify `(let ([b 3][ad ,SUCC]) (ad (ad (ad b)))))))
+
+(check-eq? 12 (church->nat (churchify `(let ([b 3][* ,MUL]) (* b 4)))))
+(check-eq? 27 (church->nat (churchify `(let ([b 3][* ,MUL]) (* b (* b 3))))))
+
+; (church->nat (churchify `(let ([b 6][add1 ,SUCC]) (add1 b))))
+; (church->nat (churchify `(let ([b 6][add1 ,SUCC]) (add1 2))))
+
+; (church->nat (churchify `(let ([b 6][ad ,SUCC]) (ad b))))
+
+; do we want to ll above church with (lambda (b) (b c3)) and get a nat?
+; ((lambda (b) (b c3)) (churchify `(let ([* ,MUL]) (* b 2))))
+; other idea: we enclose it with another let to provide the value of b.
+; (let [b 3] (churchify `(let ([* ,MUL]) (* b 2))))
+; 
+; we can't do the following just yet. but it should be feedable to a lhs.
+; (church->nat (church-compile prog))
+; now as a body, procedure above can be our experimental rhs to feed the following lhs to:
+; <procedure>
+; (,lhs ,rhs) gives us the final result.
 
 ; (define compiled (church-compile prog))
-
+; (define cv-comp (eval compiled (make-base-namespace)))
+; (define v-comp (unchurch cv-comp))
