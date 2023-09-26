@@ -41,7 +41,6 @@
 ; explains churchify if
 ; ((FALSE 2) 4)
 
-(define CAROLD  (λ (p) (p TRUE)))
 (define ZERO? (λ (n) ((n (λ (_) FALSE)) TRUE)))
 (check-false (church->boolean (ZERO? (lambda (f) (lambda (x) (f x))))))
 (check-true (church->boolean (ZERO? (lambda (_) (lambda (x) x)))))
@@ -75,10 +74,6 @@
   ((c-bool (lambda (_) #t)) (lambda (_) #f)))
 (check-true ((church->bool TRUE) '()))
 
-(require "definitions.rkt")
-(require "lists.rkt")
-(check-false (church->boolean (NULL? ((CONS NIL) NIL))))
-
 ; A church-encoded cons-cell is a function taking a when-cons callback, and a when-null callback (thunk),
 ;   returning when-cons applied on the car and cdr elements
 ; A church-encoded cons-cell is a function taking a when-cons callback, and a when-null callback (thunk),
@@ -91,42 +86,100 @@
 
 
 ;; Write your church-compiling code below:
+(require "definitions.rkt")
 
+(check-false (church->boolean (NULL? ((CONS NIL) NIL))))
+(check-eq? 100 (church->nat c100))
 (check-equal? (church->nat (cnat 3)) (church->nat (lambda (f) (lambda (x) (f (f (f x)))))))
 
-; highly questionable for nested programs
-(define/contract (lex str)
-  (-> string? list?)
-  (define pat
-    (pregexp (string-append
-      "[\\s,\\(\\)]*"  ; ws, comma, () not captured
-      "(" "[^\\s\\[\\]{}('\"`,;)]*"
-      ")")))
-  (define matches (regexp-match* pat str #:match-select cadr))
-  (define res (filter (lambda (x) (not (equal? x ""))) matches))
-  (map string->symbol res))
-
-(check-equal? 3 (length (lex "(ad (ad b))")))
-
 (define (lookup bind-map op caller)
+  ; (if (equal? caller "ini") (begin
+	; 		      (display "bind-map: ")
+	; 		      (displayln bind-map)) (void))
   (match (hash-ref bind-map op #f)
     [#f  (churchify op)]
     [v v]))
 
-(define/contract (hash-from binds outer-bind-map)
-  (-> list? hash? hash?)
-  (define (bind-val v)
-    ; (second kv) might be a symbol that refers the outer binds.
-    (match (hash-ref outer-bind-map v #f)
-      [#f         (churchify v)]
-      [outer-val  outer-val]))
-  (make-immutable-hash
-    (map (lambda (kv) (cons (first kv) (bind-val (second kv))))
-	 binds)))
+; Converts binds, checks outer-bind-map for references. The two callsites are at churchify (outer-bind-map empty)
+; and at ll (outer-bind-map from param). combine/2 only relevant for ll.
 
-(define (combine m1 m2)
-  (define res (hash-union m1 m2 #:combine/key (lambda (_k _v1 v2) v2)))
-  res)
+(define/contract (bind-map-new binds)
+  (-> list? hash?)
+  (define (f kv)
+    (define e (second kv))
+    (cons (first kv) (churchify e)))
+
+  (make-immutable-hash (map f binds)))
+
+(define/contract (bind-map-set outer binds)
+  (-> hash? list? hash?)
+  (define (f kv)
+    (define e (second kv))
+
+    (define v (cond [(number? e)  (cnat e)]
+		    ; In racket, (not (hash-ref ... #f)) is true only if hash-ref returns #f.
+		    ; More naturally, this cond arm is chosen if outer doesn't contain e.
+		    [(not (hash-ref outer e #f))  (ll e outer)]
+		    [ else                        (hash-ref outer e)]))
+
+    (if (procedure? v) (void) (raise-result-error (string->symbol "result type") "procedure?" v))
+
+    (cons (first kv) v))
+    
+  (hash-union outer (make-immutable-hash (map f binds)) #:combine/key (lambda (_k _v1 v2) v2)))
+
+; (define/contract (hash-from binds outer-bind-map)
+;   (-> list? hash? hash?)
+;   (define (bind-val v)
+;     ; (second kv) might be a symbol that refers the outer binds.
+;     (match (hash-ref outer-bind-map v #f)
+;       [#f         (churchify v)]
+;       ; [#f         (begin
+; 	; 	    (display "not found v: ")
+; 	; 	    (displayln v)
+; 	; 	    (display "outer-bind-map: ")
+; 	; 	    (displayln outer-bind-map)
+; 	; 	    (define fake-binds `([cons ,CONS]))
+; 	; 	    ; (define obm (make-immutable-hash cons nil))
+; 	; 	    (define obm (make-immutable-hash (map (lambda (kv) (cons (first kv) (bind-val (second kv)))) fake-binds)))
+; 	; 	    (display "jjj obm: ")(displayln obm)
+; 	; 	    ; (ll v outer-bind-map))]  ; sus: churchifying v isn't enough
+; 	; 	    ; (churchify v))]  ; sus: churchifying v isn't enough
+; 	; 	    '())]
+;       [outer-val  outer-val]))
+;   (define (g kv)
+;     ; (lambda (kv) (cons (first kv) (bind-val (second kv))))  )
+;     ; (match (first kv) [(? equal? 'lst)  (displayln "akk")])
+;     ; (if (equal? (first kv) 'lst)(begin
+; 	; 			  (displayln "lst: ")(displayln (second kv))
+; 	; 			  (displayln (churchify (second kv)))
+; 	; 			  (displayln "end.")
+; 	; 			  ) (void))
+;     (cons (first kv) (bind-val (second kv)))  )
+;   (make-immutable-hash
+;     ; gatekeep if first is lst. its second's curchified form must be just one procedure!
+;     (map g
+;      binds)))
+    ; (map (lambda (kv) (cons (first kv) (bind-val (second kv))))
+	;  binds)))
+
+; (define (combine m1 m2)
+;   (define fm (hash-union m1 m2 #:combine/key (lambda (_k _v1 v2) v2)))
+;   ; (display "final map: ")(displayln f)
+;   ; match if k is lst. can you manipulate it. the problem is either setting/using the final map
+;   (define (del v) ; v: churchified cons list
+;     ; print listof
+;     (define loc (church->listof church->nat))
+;     (loc (CAR ((CONS ((CONS c2) ((CONS c3) NIL))) NIL)))
+;     ; (display "expect print list ok: ")(displayln (loc (CAR ((CONS ((CONS c2) ((CONS c3) NIL))) NIL))))
+;
+;     ; car then church->nat
+;     ; (display "expect one procedure v: ")(displayln v)
+;     )  ; shouldn't this be just one procedure??
+;   (match (hash-ref fm 'lst #f)
+;     [#f  '()]
+;     [v  (del v)])
+;   fm)
 
 (define (ll body bind-map)
   (match body
@@ -153,27 +206,32 @@
       (ll `(,op ,(ll arg bind-map)) bind-map)]
 
     [`(,op ,arg)
-      ((lambda (fn) (fn (lookup bind-map op "") (lookup bind-map arg "")))
+      ((lambda (fn) (fn (lookup bind-map op "ini") (lookup bind-map arg "")))
        (lambda (op arg) (op arg))) ]
 
-    [`(let ,binds2 ,e)                (ll e (combine bind-map (hash-from binds2 bind-map)))]
+    [`(let ,binds2 ,e)                (ll e (bind-map-set bind-map binds2))]
+    ; [`(let ,binds2 ,e)                (ll e (combine bind-map (hash-from binds2 bind-map)))]
 
     [_  '()])
 
   )
 
 (define (churchify e)
-  (match e
+; (define/contract (churchify e)
+;   (-> any? procedure?)
+  (match e ; comment = dead code?
+    [(? number? e)                   (cnat e)]
     [`'()                            NIL]
     ['#t                             TRUE]
     ['#f                             FALSE]
     [`(if ,b ,then ,els)             ((((churchify b) (lambda () (churchify then))) (lambda () (churchify els))))]
-    [(? number? e)                   (cnat e)]
-    [`(,(? unary? fn) ,arg)          `(,fn ,(churchify arg))]
-    [`(,(? binary? fn) ,arg1 '())    `((,fn ,(churchify arg1)) ,NIL)]
-    [`(,(? binary? fn) ,arg1 ,arg2)  `((,fn ,(churchify arg1)) ,(churchify arg2))]
-    [`(let ,binds ,e)                (ll e (hash-from binds (hash)))]
+    ; [`(,(? unary? fn) ,arg)          `(,fn ,(churchify arg))]
+    ; [`(,(? binary? fn) ,arg1 '())    `((,fn ,(churchify arg1)) ,NIL)]
+    ; [`(,(? binary? fn) ,arg1 ,arg2)  `((,fn ,(churchify arg1)) ,(churchify arg2))]
+    [`(let ,binds ,e)                (ll e (bind-map-new binds))]
+    ; [`(let ,binds ,e)                (ll e (hash-from binds (hash)))]
     [_ e]))
+    ; [_ '()]))
 
 (check-true (church->boolean (churchify `(let ([null? ,NULL?])(null? '())))))
 ; (check-false (church->boolean (churchify `(let ([null? ,NULL?][cons ,CONS])(null? (cons 1 (cons 2 (cons 3 '()))))))))
@@ -183,20 +241,6 @@
 ; (check-true ((church->bool (churchify `(let ([not ,NOT])(not (not #t))))) '()))
 (check-eq? 2 (church->nat (churchify `(if #t 2 3)))) ;-> c2
 (check-true (church->boolean (churchify `(if #t #t #f))))
-
-; (churchify `(let ([null? ,NULL?][cons ,CONS][car ,CAR])(null? (car (cons 3 '())))))
-; (churchify `(let ([null? ,NULL?][cons ,CONS][car ,CAR])(car (cons 3 '()))))
-
-; (churchify `(let ([null? ,NULL?][cons ,CONS][car ,CAR])(cons 3 '())))
-
-; ; unfinished
-; (define unch (church->listof church->nat))
-; (unch (churchify `(let ([null? ,NULL?][cons ,CONS][car ,CAR])(cons 3 '()))))
-; (unch (churchify `(let ([null? ,NULL?][cons ,CONS][car ,CAR])(cons 3 (cons 3 '())))))
-; (churchify `(let ([cons ,CONS])(cons '() (cons 3 '()))))
-; (churchify `(let ([cons ,CONS]) 2))
-; (church->nat (churchify `(let ([cons ,CONS]) 2)))
-; (church->nat (churchify `(let ([lst (cons '() (cons 3 '()))][cons ,CONS]) 12)))
 
 (check-equal? (church->nat (SUCC (lambda (_) (lambda (x) x)))) (church->nat (lambda (f) (lambda (x) (f x)))))
 (check-equal? (church->nat ((PLUS c2) c3)) 5)
@@ -241,6 +285,7 @@
 ; 
 ; We increase the number of swapping-incrementing dance steps as we increment our input. (PRED k+1) leads (PRED k) by one because we do the dance one more time,
 ; by definition of church numerals.
+(define CAROLD  (λ (p) (p TRUE)))
 (define T (λ (p) ((PAIR (SUCC (CAROLD p))) (CAROLD p))))
 (define PRED (λ (n) (CDR ((n T) ((PAIR c0) c0)))))
 (check-eq? (church->nat (PRED c4)) 3)
@@ -443,3 +488,13 @@
 
 (check-eq? 12 (church->nat (churchify `(let ([b 3][* ,MUL]) (* b 4)))))
 (check-eq? 27 (church->nat (churchify `(let ([b 3][* ,MUL]) (* b (* b 3))))))
+
+(define prog
+  '(let ([lst (cons 5 (cons 3 '()))])
+        (car lst)))
+
+(define compiled (church-compile prog))
+(define cv-comp (eval compiled (make-base-namespace)))
+(define unchurch church->nat)
+(define v-comp (unchurch cv-comp))
+(displayln v-comp)
