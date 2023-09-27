@@ -17,4 +17,4 @@ tests:
 - [x] public-bool0/          
 - [x] public-let0/
 - [x] public-bool1/          
-- [ ] public-let1/
+- [x] public-let1/

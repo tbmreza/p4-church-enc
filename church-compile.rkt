@@ -93,15 +93,9 @@
 (check-equal? (church->nat (cnat 3)) (church->nat (lambda (f) (lambda (x) (f (f (f x)))))))
 
 (define (lookup bind-map op caller)
-  ; (if (equal? caller "ini") (begin
-	; 		      (display "bind-map: ")
-	; 		      (displayln bind-map)) (void))
   (match (hash-ref bind-map op #f)
     [#f  (churchify op)]
     [v v]))
-
-; Converts binds, checks outer-bind-map for references. The two callsites are at churchify (outer-bind-map empty)
-; and at ll (outer-bind-map from param). combine/2 only relevant for ll.
 
 (define/contract (bind-map-new binds)
   (-> list? hash?)
@@ -128,58 +122,18 @@
     
   (hash-union outer (make-immutable-hash (map f binds)) #:combine/key (lambda (_k _v1 v2) v2)))
 
-; (define/contract (hash-from binds outer-bind-map)
-;   (-> list? hash? hash?)
-;   (define (bind-val v)
-;     ; (second kv) might be a symbol that refers the outer binds.
-;     (match (hash-ref outer-bind-map v #f)
-;       [#f         (churchify v)]
-;       ; [#f         (begin
-; 	; 	    (display "not found v: ")
-; 	; 	    (displayln v)
-; 	; 	    (display "outer-bind-map: ")
-; 	; 	    (displayln outer-bind-map)
-; 	; 	    (define fake-binds `([cons ,CONS]))
-; 	; 	    ; (define obm (make-immutable-hash cons nil))
-; 	; 	    (define obm (make-immutable-hash (map (lambda (kv) (cons (first kv) (bind-val (second kv)))) fake-binds)))
-; 	; 	    (display "jjj obm: ")(displayln obm)
-; 	; 	    ; (ll v outer-bind-map))]  ; sus: churchifying v isn't enough
-; 	; 	    ; (churchify v))]  ; sus: churchifying v isn't enough
-; 	; 	    '())]
-;       [outer-val  outer-val]))
-;   (define (g kv)
-;     ; (lambda (kv) (cons (first kv) (bind-val (second kv))))  )
-;     ; (match (first kv) [(? equal? 'lst)  (displayln "akk")])
-;     ; (if (equal? (first kv) 'lst)(begin
-; 	; 			  (displayln "lst: ")(displayln (second kv))
-; 	; 			  (displayln (churchify (second kv)))
-; 	; 			  (displayln "end.")
-; 	; 			  ) (void))
-;     (cons (first kv) (bind-val (second kv)))  )
-;   (make-immutable-hash
-;     ; gatekeep if first is lst. its second's curchified form must be just one procedure!
-;     (map g
-;      binds)))
-    ; (map (lambda (kv) (cons (first kv) (bind-val (second kv))))
-	;  binds)))
+(define/contract (bind-map-set* outer binds)
+  (-> hash? list? hash?)
+  (define (f* bind acc)
+    (define e (second bind))
+    (define v (cond [(number? e)                  (cnat e)]
+		    [(member e (hash-keys acc))   (hash-ref acc e)]
+		    [(not (hash-ref outer e #f))  (ll e outer)]
+		    [ else                        (hash-ref outer e)]))
+    (hash-set acc (first bind) v))
 
-; (define (combine m1 m2)
-;   (define fm (hash-union m1 m2 #:combine/key (lambda (_k _v1 v2) v2)))
-;   ; (display "final map: ")(displayln f)
-;   ; match if k is lst. can you manipulate it. the problem is either setting/using the final map
-;   (define (del v) ; v: churchified cons list
-;     ; print listof
-;     (define loc (church->listof church->nat))
-;     (loc (CAR ((CONS ((CONS c2) ((CONS c3) NIL))) NIL)))
-;     ; (display "expect print list ok: ")(displayln (loc (CAR ((CONS ((CONS c2) ((CONS c3) NIL))) NIL))))
-;
-;     ; car then church->nat
-;     ; (display "expect one procedure v: ")(displayln v)
-;     )  ; shouldn't this be just one procedure??
-;   (match (hash-ref fm 'lst #f)
-;     [#f  '()]
-;     [v  (del v)])
-;   fm)
+  (define bm (foldl f* (hash) binds))
+  (hash-union outer bm #:combine/key (lambda (_k _v1 v2) v2)))
 
 (define (ll body bind-map)
   (match body
@@ -188,7 +142,8 @@
     ['#f                  FALSE]
     [(? number? body)     (cnat body)]
     [`(if ,b ,then ,els)  ((((ll b bind-map) (lambda () (ll then bind-map))) (lambda () (ll els bind-map))))]
-    ; immediately invoke ((lambda (fn) (fn op arg)) body)
+
+    ; Rearrange binary? body so that eventually we can immediately invoke ((lambda (fn) (fn op arg)) body)
     [`(,(? binary? op) (,arg1 ...) (,arg2 ...))
       (ll `(,op ,(ll arg1 bind-map) ,(ll arg2 bind-map)) bind-map)]
 
@@ -206,32 +161,31 @@
       (ll `(,op ,(ll arg bind-map)) bind-map)]
 
     [`(,op ,arg)
-      ((lambda (fn) (fn (lookup bind-map op "ini") (lookup bind-map arg "")))
+      ((lambda (fn) (fn (lookup bind-map op "") (lookup bind-map arg "")))
        (lambda (op arg) (op arg))) ]
 
     [`(let ,binds2 ,e)                (ll e (bind-map-set bind-map binds2))]
-    ; [`(let ,binds2 ,e)                (ll e (combine bind-map (hash-from binds2 bind-map)))]
+
+    ; 7: wrap bind-map v with Y (lambda (,k) ...)
+    ; rest is exercise for writing recursions using U or Y
+
+    [`(let* ,binds2 ,e)                (ll e (bind-map-set* bind-map binds2))]
 
     [_  '()])
 
   )
 
-(define (churchify e)
-; (define/contract (churchify e)
-;   (-> any? procedure?)
+; (define (churchify e)
+(define/contract (churchify e)
+  (-> any? procedure?)
   (match e ; comment = dead code?
     [(? number? e)                   (cnat e)]
     [`'()                            NIL]
     ['#t                             TRUE]
     ['#f                             FALSE]
     [`(if ,b ,then ,els)             ((((churchify b) (lambda () (churchify then))) (lambda () (churchify els))))]
-    ; [`(,(? unary? fn) ,arg)          `(,fn ,(churchify arg))]
-    ; [`(,(? binary? fn) ,arg1 '())    `((,fn ,(churchify arg1)) ,NIL)]
-    ; [`(,(? binary? fn) ,arg1 ,arg2)  `((,fn ,(churchify arg1)) ,(churchify arg2))]
     [`(let ,binds ,e)                (ll e (bind-map-new binds))]
-    ; [`(let ,binds ,e)                (ll e (hash-from binds (hash)))]
     [_ e]))
-    ; [_ '()]))
 
 (check-true (church->boolean (churchify `(let ([null? ,NULL?])(null? '())))))
 ; (check-false (church->boolean (churchify `(let ([null? ,NULL?][cons ,CONS])(null? (cons 1 (cons 2 (cons 3 '()))))))))
@@ -499,8 +453,13 @@
 ;              (* 2 (car (cdr (cons '() (cons 3 '())))))
 ;              17))
 
-; (define compiled (church-compile prog))
-; (define cv-comp (eval compiled (make-base-namespace)))
-; (define unchurch church->nat)
-; (define v-comp (unchurch cv-comp))
-; (displayln v-comp)
+(define prog
+  '(let* ([a 2] [b 3])
+     (let* ([b 5] [c b])
+       (* a (* b c)))))
+
+(define compiled (church-compile prog))
+(define cv-comp (eval compiled (make-base-namespace)))
+(define unchurch church->nat)
+(define v-comp (unchurch cv-comp))
+(displayln v-comp)
