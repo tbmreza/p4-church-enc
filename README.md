@@ -7,7 +7,7 @@ tests:
 - [x] public-list1/
 - [x] public-arith0/         
 - [ ] public-factorial-bonus/
-- [ ] public-list2/
+- [x] public-list2/
 - [x] public-arith1/         
 - [ ] public-length/         
 - [x] public-multiply/

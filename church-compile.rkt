@@ -187,7 +187,7 @@
     ['#t                  TRUE]
     ['#f                  FALSE]
     [(? number? body)     (cnat body)]
-    [`(if ,b ,then ,els)  ((((ll b bind-map) (lambda () (churchify then))) (lambda () (churchify els))))]
+    [`(if ,b ,then ,els)  ((((ll b bind-map) (lambda () (ll then bind-map))) (lambda () (ll els bind-map))))]
     ; immediately invoke ((lambda (fn) (fn op arg)) body)
     [`(,(? binary? op) (,arg1 ...) (,arg2 ...))
       (ll `(,op ,(ll arg1 bind-map) ,(ll arg2 bind-map)) bind-map)]
@@ -256,7 +256,7 @@
 
 (define PAIR (λ (a) (λ (b) (λ (s) ((s a) b)))))
 ; (define CAROLD  (λ (p) (p TRUE)))
-(define CDR  (λ (p) (p FALSE)))
+(define CDROLD  (λ (p) (p FALSE)))
 ; (define NIL FALSE)
 ; (define NIL? (λ (p) (??)))
 
@@ -287,7 +287,7 @@
 ; by definition of church numerals.
 (define CAROLD  (λ (p) (p TRUE)))
 (define T (λ (p) ((PAIR (SUCC (CAROLD p))) (CAROLD p))))
-(define PRED (λ (n) (CDR ((n T) ((PAIR c0) c0)))))
+(define PRED (λ (n) (CDROLD ((n T) ((PAIR c0) c0)))))
 (check-eq? (church->nat (PRED c4)) 3)
 
 (define MINUS (lambda (m) (lambda (n) ((n PRED) m))))
@@ -489,12 +489,18 @@
 (check-eq? 12 (church->nat (churchify `(let ([b 3][* ,MUL]) (* b 4)))))
 (check-eq? 27 (church->nat (churchify `(let ([b 3][* ,MUL]) (* b (* b 3))))))
 
-(define prog
-  '(let ([lst (cons 5 (cons 3 '()))])
-        (car lst)))
+; ; just the true branch: ok
+; (define prog
+;   '(* 2 (car (cdr (cons '() (cons 3 '()))))))
 
-(define compiled (church-compile prog))
-(define cv-comp (eval compiled (make-base-namespace)))
-(define unchurch church->nat)
-(define v-comp (unchurch cv-comp))
-(displayln v-comp)
+; ; if true: ok
+; (define prog
+;   '(if #t
+;              (* 2 (car (cdr (cons '() (cons 3 '())))))
+;              17))
+
+; (define compiled (church-compile prog))
+; (define cv-comp (eval compiled (make-base-namespace)))
+; (define unchurch church->nat)
+; (define v-comp (unchurch cv-comp))
+; (displayln v-comp)
