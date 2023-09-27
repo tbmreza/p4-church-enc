@@ -33,6 +33,15 @@
     (lambda (f)
       (lambda (x) ((cn f) ((ck f) x))))))
 
+;; staging for PRED
+(define PAIR (λ (a) (λ (b) (λ (s) ((s a) b)))))
+(define CAROLD  (λ (p) (p TRUE)))
+(define CDROLD  (λ (p) (p FALSE)))
+(define T (λ (p) ((PAIR (SUCC (CAROLD p))) (CAROLD p))))
+(define PRED (λ (n) (CDROLD ((n T) ((PAIR c0) c0)))))
+
+(define MINUS (lambda (m) (lambda (n) ((n PRED) m))))
+
 (define (MUL cn)
   (lambda (ck)
     (lambda (f)
@@ -45,6 +54,7 @@
 
 (define TRUE   (lambda (a) (lambda (_) a)))
 (define FALSE  (lambda (_) (lambda (b) b)))
+(define NOT    (λ (b) ((b FALSE) TRUE)))
 
 (define NULL? (λ (lst) ((lst (λ (_) (λ (_) FALSE))) (λ (_) TRUE))))
 
@@ -66,8 +76,6 @@
 (define CDR (λ (lst)
                ((lst (λ (_car) (λ (cdr) cdr)))
                 ERROR)))
-
-;; staging for PRED
 
 (define c0 (lambda (_) (lambda (x) x)))
 (define c1 (lambda (f) (lambda (x) (f x))))
