@@ -111,8 +111,6 @@
   (-> hash? list? hash?)
   (define (f kv)
     (define e (second kv))
-    (display 'e)(displayln e)
-
     (define v (cond [(number? e)                  (cnat e)]
 		    [(not (hash-ref outer e #f))  (ll e outer)]
 		    [else                         (hash-ref outer e)]))
@@ -141,7 +139,7 @@
     (cons (first kv) v))
     
   (define res (hash-union outer (make-immutable-hash (map f binds)) #:combine/key (lambda (_k _v1 v2) v2)))
-  (display 'bmsret)(displayln res)
+  ; (display 'bmsret)(displayln res)
   res)
 
 (define/contract (bind-map-set* outer binds)
@@ -190,26 +188,40 @@
 	((lambda (fn) (fn (lookup bind-map op "") (lookup bind-map arg "")))
 	 (lambda (op arg) (op arg))))]
 
-    [`(,lhs ,rhs)
+    [`(,op ,arg)
       (begin
-	((ll lhs bind-map) (ll rhs bind-map))
+	; always gets then br....
+	(match op
+	  [`(lambda (,_formal-params ...) ,_body)  ((ll op bind-map) (ll arg bind-map))]
+	  [op                                      ((lookup bind-map op "") (ll arg bind-map))])
 	)]
 
     [`(lambda (,formal-params ...) ,body)
       (begin
-	(define (lookup-free-vars)
-	  (define (f var)
-	    (match var
-	      [(? number? var)                               (cnat var)]
-	      [var #:when (member var formal-params)         var]
-	      [var #:when (member var (hash-keys bind-map))  (lookup bind-map var "")]
-	      [`(,a ,b)                                      `(,(f a) ,(f b))]))
-
+	(define (lookup-free-vars body)
 	  (match body
-	    [body #:when (list? body)  (map f body)]
-	    [_                         (ll body bind-map)]))
+	    [`(if ,b ,then ,els)
+	      (begin
+		(displayln 'masuk)
+		(displayln (lookup-free-vars els))
+		; `(if ,(lookup-free-vars b) ,(lookup-free-vars then) ,(lookup-free-vars els))
+		; `(if #f ,(lookup-free-vars then) ,(lookup-free-vars els))
+		`(,((lookup-free-vars b) (lookup-free-vars then)) ,(lookup-free-vars els))
+		)]
 
-	(evalnew `(lambda ,formal-params ,(lookup-free-vars))))]
+	    [body #:when (list? body) 
+	      (begin
+		(define (f var)
+		  (match var
+		    [(? number? var)                               (cnat var)]
+		    [var #:when (member var formal-params)         var]
+		    [var #:when (member var (hash-keys bind-map))  (lookup bind-map var "")]
+		    [`(,a ,b)                                      `(,(f a) ,(f b))]))
+		(map f body))]
+
+	    [_  (ll body bind-map)]))
+
+	(evalnew `(lambda ,formal-params ,(lookup-free-vars body))))]
 
     [`(let ,binds2 ,e)
       (begin
@@ -377,13 +389,21 @@
 ;   '(let ([id (lambda (_lst) 19)][b 13])
 ;      (id b)))
 
+; let on neutered length-letrec
+; (define prog
+;   '(letrec ([len (lambda (lst)
+;                    (if (null? lst)
+;                        0
+;                        (add1 (len (cdr lst)))))])
+;      (len (cons 1 (cons 2 (cons 3 (cons 4 (cons 5 (cons '() '())))))))))
 (define prog
-  '(let ([ignored 4])
-     (lambda (lst) 23)))
-     ; (lambda (lst) (add1 lst))))
-(define compiled (church-compile prog))
-(define cv-comp (eval compiled (make-base-namespace)))
-(church->nat (cv-comp c3))
+  '(let ([len (lambda (lst)
+                   ; (if (null? lst)
+                   ; (if #f 12 5))])
+                   (if #t (add1 12) 5))])
+     (len 2)))
+     ; 2))
+     ; (len (cons 1 (cons 2 (cons 3 (cons 4 (cons 5 (cons '() '())))))))))
 
 ; (define compiled (church-compile prog))
 ; (define cv-comp (eval compiled (make-base-namespace)))
