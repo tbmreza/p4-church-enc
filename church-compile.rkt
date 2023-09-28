@@ -111,13 +111,16 @@
   (-> hash? list? hash?)
   (define (f kv)
     (define e (second kv))
-    ; pattern in cond branch?
+    (display 'e)(displayln e)
 
-    (define v (match e
-      [`(lambda (,args ...) ,body)            (begin (displayln e)(lambda args body))]
-      [_  (cond [(number? e)                  (cnat e)]
-		[(not (hash-ref outer e #f))  (ll e outer)]
-		[else                         (hash-ref outer e)])]))
+    (define v (cond [(number? e)                  (cnat e)]
+		    [(not (hash-ref outer e #f))  (ll e outer)]
+		    [else                         (hash-ref outer e)]))
+    ; (define v (match e
+    ;   [`(lambda (,args ...) ,body)            (lambda args body)]
+    ;   [_  (cond [(number? e)                  (cnat e)]
+	; 	[(not (hash-ref outer e #f))  (ll e outer)]
+	; 	[else                         (hash-ref outer e)])]))
 
     ; (define v (cond [(number? e)  (cnat e)]
 	; 	    ; In racket, (not (hash-ref ... #f)) is true only if hash-ref returns #f.
@@ -137,7 +140,9 @@
 
     (cons (first kv) v))
     
-  (hash-union outer (make-immutable-hash (map f binds)) #:combine/key (lambda (_k _v1 v2) v2)))
+  (define res (hash-union outer (make-immutable-hash (map f binds)) #:combine/key (lambda (_k _v1 v2) v2)))
+  (display 'bmsret)(displayln res)
+  res)
 
 (define/contract (bind-map-set* outer binds)
   (-> hash? list? hash?)
@@ -154,7 +159,9 @@
 
 (define/contract (ll body bind-map)
   (-> any? any? procedure?)
-  (begin (display "ll body: ")(displayln body)(define res (match body
+  (begin
+    ; (display "ll body: ")(displayln body)
+    (define res (match body
     [`'()                 NIL]
     ['#t                  TRUE]
     ['#f                  FALSE]
@@ -179,30 +186,30 @@
       (begin (ll `(,op ,(ll arg bind-map)) bind-map))]
 
     [`(,(? unary? op) ,arg)
-      ; (ll `(,op ,(lookup bind-map arg "")))
       (begin
 	((lambda (fn) (fn (lookup bind-map op "") (lookup bind-map arg "")))
 	 (lambda (op arg) (op arg))))]
 
     [`(,lhs ,rhs)
-      ; ((lambda (fn) (fn (lookup bind-map lhs "") (lookup bind-map arg "")))
-	;  (lambda (op arg) (op arg)))
       (begin
-	(match c0
-	  [_  ((lambda (num) (num c3)) (ll rhs bind-map))]))]
+	((ll lhs bind-map) (ll rhs bind-map))
+	)]
 
     [`(lambda (,formal-params ...) ,body)
       (begin
-	(define (lookup-free-vars body formal-params bind-map)
+	(define (lookup-free-vars)
 	  (define (f var)
-	    (cond [(number? var)               (cnat var)]
-		  [(member var formal-params)  var]
-		  [else                        (lookup bind-map var "")]))
-	  (define (mk)
-	    (map f body))
-	  (evalnew `(lambda ,formal-params ,(mk))))
+	    (match var
+	      [(? number? var)                               (cnat var)]
+	      [var #:when (member var formal-params)         var]
+	      [var #:when (member var (hash-keys bind-map))  (lookup bind-map var "")]
+	      [`(,a ,b)                                      `(,(f a) ,(f b))]))
 
-	(lookup-free-vars body formal-params bind-map))]
+	  (match body
+	    [body #:when (list? body)  (map f body)]
+	    [_                         (ll body bind-map)]))
+
+	(evalnew `(lambda ,formal-params ,(lookup-free-vars))))]
 
     [`(let ,binds2 ,e)
       (begin
@@ -345,22 +352,35 @@
 ;   '(let ([id (lambda (lst) lst)][b 13])
 ;      (id b)))
 
-; ; unused lambda param: ok
-; (define prog
-;   '(let ([id (lambda (_lst) 14)][b 13])
-;      (id b)))
-
-; ; inlined lambda
+; ; inlined lambda: ok
 ; (define prog
 ;   '(let ([ignore 13])
-;      ((lambda (num) (num 3)) (lambda (x) (add1 x)))))
+;      ((lambda (num) (num 2)) (lambda (x) (add1 x)))))
+;      ; ((lambda (num) (num 14)) (lambda (x) (sub1 x)))))
 
-; lambda wrapped unary op
+; ; lambda wrapped unary op: ok
+; (define prog
+;   '(let ([ignore 13])
+;      ; (lambda (x) (add1 x))))
+;      (lambda (x) (sub1 x))))
+; (define compiled (church-compile prog))
+; (define cv-comp (eval compiled (make-base-namespace)))
+; (church->nat (cv-comp c3))
+
+; ; inlined lambda with nested prog: ok
+; (define prog
+;   '(let ([ignore 13])
+;      ((lambda (num) (num 10)) (lambda (x) (sub1 (sub1 x))))))
+
+; ; storing lambda, unused param
+; (define prog
+;   '(let ([id (lambda (_lst) 19)][b 13])
+;      (id b)))
+
 (define prog
-  '(let ([ignore 13])
-     (lambda (x) (add1 x))))
-     ; (lambda (x) (sub1 x))))
-
+  '(let ([ignored 4])
+     (lambda (lst) 23)))
+     ; (lambda (lst) (add1 lst))))
 (define compiled (church-compile prog))
 (define cv-comp (eval compiled (make-base-namespace)))
 (church->nat (cv-comp c3))
@@ -369,4 +389,4 @@
 ; (define cv-comp (eval compiled (make-base-namespace)))
 ; (define unchurch church->nat)
 ; (define v-comp (unchurch cv-comp))
-; (display 'v-comp)(displayln v-comp)
+; (displayln v-comp)

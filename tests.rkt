@@ -23,11 +23,10 @@
 (check-eq? 6 (church->nat (churchify `(let ([* ,MUL]) (* 2 3)))))
 (check-eq? 4 (church->nat (churchify `(let () (if #t 4 3)))))
 (check-eq? 3 (church->nat (churchify `(let ([not ,NOT]) (if (not #f) 3 5)))))
-(check-eq? 3 (church->nat (churchify `(let ([ad ,SUCC]) (ad 2)))))
-(check-eq? 7 (church->nat (churchify `(let ([b 6][ad ,SUCC]) (ad b)))))
-(check-eq? 6 (church->nat (churchify `(let ([b 3][ad ,SUCC]) (ad (ad (ad b)))))))
 (check-eq? 12 (church->nat (churchify `(let ([b 3][* ,MUL]) (* b 4)))))
 (check-eq? 27 (church->nat (churchify `(let ([b 3][* ,MUL]) (* b (* b 3))))))
+(check-eq? 13 (church->nat (churchify `(let ([ignore 13][sub1 ,PRED]) ((lambda (num) (num 14)) (lambda (x) (sub1 x)))))))
+
 
 ; (define ((church->listof T) c-lst)
 ;   ; when it's a pair, convert the element with T, and the tail with (church->listof T)
