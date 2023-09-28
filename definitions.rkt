@@ -7,8 +7,9 @@
   (eval data (make-base-namespace)))
 
 (define (any? _) #t)
-(define (procedure-at-2nd? p)
-  (procedure? (second p)))
+(define (len-is-2? l)
+  (cond [(not (list? l))  #f]
+	[l                (= 2 (length l))]))
 
 (define/contract (cnat n)
   (-> number? procedure?)
@@ -22,7 +23,8 @@
 (define (binary? prim) (member prim '(+ - * = cons)))
 
 (define U (lambda (x) (x x)))
-(define Y (U (λ (y) (λ (f) (f (λ (x) (((y y) f) x)))))))
+; (define Y (U (λ (y) (λ (f) (f (λ (x) (((y y) f) x)))))))
+(define Y (λ (g) ((λ (f) (g (λ (x) ((f f) x)))) (λ (f) (g (λ (x) ((f f) x)))))))
 
 (define (SUCC cn)
   (lambda (f)
@@ -33,12 +35,20 @@
     (lambda (f)
       (lambda (x) ((cn f) ((ck f) x))))))
 
-;; staging for PRED
-(define PAIR (λ (a) (λ (b) (λ (s) ((s a) b)))))
-(define CAROLD  (λ (p) (p TRUE)))
-(define CDROLD  (λ (p) (p FALSE)))
-(define T (λ (p) ((PAIR (SUCC (CAROLD p))) (CAROLD p))))
-(define PRED (λ (n) (CDROLD ((n T) ((PAIR c0) c0)))))
+; One intuition (immediate observation of a simpler definition, not the one implemented below. The implementation below is called "wisdom tooth trick" for some intuition I can't work out yet.)
+; of PRED is we start with a pair of zeros ((CONS c0) c0).
+; 
+; If we input c0 (a lambda that *ignores* its outer-most parameter f), we take the first of our pair.
+; 
+; If we input c1 (a lambda that applies f *once*), we take the second of previous step c0 as our new first; our new second succ of that new first;
+;   and finally return the first of our pair.
+; 
+; We increase the number of swapping-incrementing dance steps as we increment our input. (PRED k+1) leads (PRED k) by one because we do the dance one more time, by definition of church numerals.
+(define PAIR  (λ (a) (λ (b) (λ (s) ((s a) b)))))
+(define FST   (λ (p) (p TRUE)))
+(define SND   (λ (p) (p FALSE)))
+(define T     (λ (p) ((PAIR (SUCC (FST p))) (FST p))))
+(define PRED  (λ (n) (SND ((n T) ((PAIR c0) c0)))))
 
 (define MINUS (lambda (m) (lambda (n) ((n PRED) m))))
 
@@ -55,6 +65,10 @@
 (define TRUE   (lambda (a) (lambda (_) a)))
 (define FALSE  (lambda (_) (lambda (b) b)))
 (define NOT    (λ (b) ((b FALSE) TRUE)))
+(define ZERO?  (lambda (n) ((n (lambda (x) (x FALSE))) TRUE)))
+(define LEQ?   (lambda (m) (lambda (n) (ZERO? ((MINUS m) n)))))
+(define AND    (lambda (p) (lambda (q) ((p q) p))))
+(define EQ?    (lambda (m) (lambda (n) ((AND ((LEQ? m) n)) ((LEQ? n) m)))))
 
 (define NULL? (λ (lst) ((lst (λ (_) (λ (_) FALSE))) (λ (_) TRUE))))
 
@@ -83,5 +97,7 @@
 (define c3 (lambda (f) (lambda (x) (f (f (f x))))))
 (define c4 (lambda (f) (lambda (x) (f (f (f (f x)))))))
 (define c5 (lambda (f) (lambda (x) (f (f (f (f (f x))))))))
-(define c10 ((MUL c2) c5))
+(define c7   ((PLUS c2) c5))
+(define c9   ((PLUS c2) c7))
+(define c10  ((MUL c2) c5))
 (define c100 ((MUL ((MUL c2) c2)) ((MUL c5) c5)))

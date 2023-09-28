@@ -4,7 +4,6 @@
 
 (define prog '(if #t #t #f))
 
-; (define unchurch church->bool)
 (define unchurch church->boolean)
 
 (define v (eval prog (make-base-namespace)))
