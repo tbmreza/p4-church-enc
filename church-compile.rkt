@@ -164,7 +164,7 @@
     ['#t                  TRUE]
     ['#f                  FALSE]
     [(? number? body)     (cnat body)]
-    [`(if ,b ,then ,els)  ((((ll b bind-map) (lambda () (ll then bind-map))) (lambda () (ll els bind-map))))]
+    [`(if ,b ,then ,els)  (begin ((((ll b bind-map) (lambda () (ll then bind-map))) (lambda () (ll els bind-map)))))]
 
     ; Rearrange binary? body so that eventually we can immediately invoke ((lambda (fn) (fn op arg)) body)
     [`(,(? binary? op) (,arg1 ...) (,arg2 ...))
@@ -190,7 +190,18 @@
 
     [`(,op ,arg)
       (begin
-	; always gets then br....
+	; in op arg arm, pass arg to op so that it can in turn pass it to its body.
+	; bind-map add
+	;   key: ??
+	;   val: arg
+	; 1. bind-map no.4
+
+	; (define bm bind-map)
+	; (display 'bm)(displayln bm)
+	; (define proc (hash-ref bm 'len))
+	; (displayln (church->nat (proc c2)))
+	; won't listen to predicate!
+	
 	(match op
 	  [`(lambda (,_formal-params ...) ,_body)  ((ll op bind-map) (ll arg bind-map))]
 	  [op                                      ((lookup bind-map op "") (ll arg bind-map))])
@@ -202,11 +213,7 @@
 	  (match body
 	    [`(if ,b ,then ,els)
 	      (begin
-		(displayln 'masuk)
-		(displayln (lookup-free-vars els))
-		; `(if ,(lookup-free-vars b) ,(lookup-free-vars then) ,(lookup-free-vars els))
-		; `(if #f ,(lookup-free-vars then) ,(lookup-free-vars els))
-		`(,((lookup-free-vars b) (lookup-free-vars then)) ,(lookup-free-vars els))
+		`(if ,b ,(lookup-free-vars then) ,(lookup-free-vars els))
 		)]
 
 	    [body #:when (list? body) 
@@ -219,7 +226,9 @@
 		    [`(,a ,b)                                      `(,(f a) ,(f b))]))
 		(map f body))]
 
-	    [_  (ll body bind-map)]))
+	    [_  (begin
+		  (define ret (ll body bind-map))
+		  ret)]))
 
 	(evalnew `(lambda ,formal-params ,(lookup-free-vars body))))]
 
@@ -332,16 +341,17 @@
   ; Define primitive operations and needed helpers using a top-level let form?
   (churchify
    `(let ([add1 ,SUCC]
+	  [null? ,NULL?]
           [sub1 ,PRED]
           [cons ,CONS]
-          [null? ,NULL?]
           [not ,NOT]
           [car ,CAR]
           [cdr ,CDR]
           [zero? ,ZERO?]
           [+ ,PLUS]
           [- ,MINUS]
-          [* ,MUL])
+          [* ,MUL]
+	  )
       ,program)))
 
 ; (check-true (church->boolean (churchify `(let ([not ,NOT]) (not #f)))))
@@ -396,12 +406,9 @@
 ;                        0
 ;                        (add1 (len (cdr lst)))))])
 ;      (len (cons 1 (cons 2 (cons 3 (cons 4 (cons 5 (cons '() '())))))))))
+
 (define prog
-  '(let ([len (lambda (lst)
-                   ; (if (null? lst)
-                   ; (if #f 12 5))])
-                   (if #t (add1 12) 5))])
-     (len 2)))
+  '(let ([len (lambda (lst) (if (null? lst) lst (add1 lst)))]) (len 2)))
      ; 2))
      ; (len (cons 1 (cons 2 (cons 3 (cons 4 (cons 5 (cons '() '())))))))))
 
