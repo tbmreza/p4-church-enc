@@ -48,9 +48,8 @@
   `(let ([len (lambda (succ) (lambda (int) (if (null? int) int (succ int))))])
      ((len ,SUCC) 2)))))
 
-; ; binary lambda body
-; (check-eq? 2 (church->nat (church-compile
-; ; `(let* ([f0   (lambda (passed) (add1 passed))]  ; ok
-;   `(let* ([f0   (lambda (passed) (* 2 passed))]
-; 	  [f    (lambda (x) (if #f 0 (f0 x)))])
-;      (f 1)))))
+; binary lambda body
+(check-eq? 8 (church->nat (church-compile
+  `(let* ([f0   (lambda (passed) (* 2 passed))]
+	  [f    (lambda (x) (if #f 0 (f0 x)))])
+     (f 4)))))
