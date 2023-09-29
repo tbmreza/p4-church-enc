@@ -11,6 +11,9 @@
   (cond [(not (list? l))  #f]
 	[l                (= 2 (length l))]))
 
+(define (literal? v)
+  (or (number? v) (member v `(#t #f '()))))
+
 (define/contract (cnat n)
   (-> number? procedure?)
   (define (h n acc)

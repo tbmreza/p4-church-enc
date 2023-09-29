@@ -76,17 +76,13 @@
 
 ;; Write your church-compiling code below:
 
-; (define (matches-lambda? v) #t)
-
-(define (lookup bind-map op)
-  (match (hash-ref bind-map op #f)
-    [#f #:when (or (boolean? op)(number? op)(procedure? op))
-     (begin
-       (churchify op))]
-    [v
-      (begin
-	v)])
-  )
+; logs:
+; only ll default arm calls lookup
+; churchify and ll shouldn't overlap in terminal arms
+; nesting lambda means growing fargs
+(define (lookup op bind-map)
+  (cond [(procedure? op)  op]
+        [else             (hash-ref bind-map op #f)]))
 
 (define/contract (bind-map-new binds)
   (-> list? hash?)
@@ -96,194 +92,140 @@
 
   (make-immutable-hash (map f binds)))
 
-(define/contract (bind-map-set outer binds)
-  (-> hash? list? hash?)
+(define/contract (bind-map-set binds outer)
+  (-> list? hash? hash?)
   (define (f kv)
     (define e (second kv))
     (define v (cond [(number? e)                  (cnat e)]
-		    [(not (hash-ref outer e #f))  (ll e outer)]
-		    [else                         (hash-ref outer e)]))
+                    [(not (hash-ref outer e #f))  (ll e outer)]
+                    [else                         (hash-ref outer e)]))
 
-    (if (procedure? v) (void) (raise-result-error (string->symbol "result type") "procedure?" v))
+    (if (procedure? v)
+      (void)
+      (raise-result-error (string->symbol "church-encoded type") "procedure?" v))
 
     (cons (first kv) v))
     
-  (define res (hash-union outer (make-immutable-hash (map f binds)) #:combine/key (lambda (_k _v1 v2) v2)))
-  ; (display 'bmsret)(displayln res)
-  res)
+  (define bm (make-immutable-hash (map f binds)))
+  (hash-union outer
+              bm
+              #:combine/key (lambda (_k _v1 v2) v2)))
 
-(define/contract (bind-map-set* outer binds)
-  (-> hash? list? hash?)
+(define/contract (bind-map-set* binds outer)
+  (-> list? hash? hash?)
   (define (f* bind acc)
     (define e (second bind))
     (define v (cond [(number? e)                  (cnat e)]
-		    [(member e (hash-keys acc))   (hash-ref acc e)]
-		    ; [(not (hash-ref outer e #f))  (begin (display 'BMS:)(displayln e)(ll e outer))]
-		    [(not (hash-ref outer e #f))
-		     (begin
-		       ; (display 'BMS:)(displayln e)
-		       (ll e acc))]
-		    [ else                        (hash-ref outer e)]))
-    (define vret (hash-set acc (first bind) v))
-    ; (display 'vret)(displayln vret)
-    vret)
+                    [(member e (hash-keys acc))   (hash-ref acc e)]
+                    [(not (hash-ref outer e #f))  (begin (ll e acc))]
+                    [else                         (hash-ref outer e)]))
+    (hash-set acc (first bind) v))
 
-  ; (define bm (foldl f* (hash) binds))
   (define bm (foldl f* outer binds))
-
-  (hash-union outer bm #:combine/key (lambda (_k _v1 v2) v2)))
+  (hash-union outer
+              bm
+              #:combine/key (lambda (_k _v1 v2) v2)))
 
 (define/contract (ll body bind-map)
   (-> any? any? procedure?)
-  (begin
-    (define res (match body
-    [`'()                 NIL]
-    ['#t                  TRUE]
-    ['#f                  FALSE]
-    [(? number? body)     (cnat body)]
-    [`(if ,b ,then ,els)  (begin ((((ll b bind-map) (lambda () (ll then bind-map))) (lambda () (ll els bind-map)))))]
+  (match body
+    [(? literal? body)  (churchify-terminal body)]
 
-    ; Rearrange binary? body so that eventually we can immediately invoke ((lambda (fn) (fn op arg)) body)
-    [`(,(? binary? op) (,arg1 ...) (,arg2 ...))
-      (ll `(,op ,(ll arg1 bind-map) ,(ll arg2 bind-map)) bind-map)]
-
-    [`(,(? binary? op) (,arg1 ...) ,arg2)
-      (ll `(,op ,(ll arg1 bind-map) ,arg2) bind-map)]
-
-    [`(,(? binary? op) ,arg1 (,arg2 ...))
-      (ll `(,op ,arg1 ,(ll arg2 bind-map)) bind-map)]
-
-    [`(,(? binary? op) ,arg1 ,arg2)
+    [`(if ,b ,then ,els)
       (begin
-	(define op-val (lookup bind-map op))
-	(define arg1-val (lookup bind-map arg1))
-	(define arg2-val (lookup bind-map arg2))
+        ((((ll b bind-map) (lambda () (ll then bind-map))) (lambda () (ll els bind-map)))))]
 
-	((lambda (fn) (fn op-val arg1-val arg2-val))
-	 (lambda (op arg1 arg2) ((op arg1) arg2))))]
+    [`(,(? binary? op) ,a1 ,a2)
+      (begin
+        (define (val e) (ll e bind-map))
 
-    [`(,(? unary? op) (,arg ...))
-      (begin (ll `(,op ,(ll arg bind-map)) bind-map))]
+        ((lambda (fn) (fn (val op) (val a1) (val a2)))
+         (lambda (op a1 a2) ((op a1) a2))))]
 
     [`(,(? unary? op) ,arg)
       (begin
-	((lambda (fn) (fn (lookup bind-map op) (lookup bind-map arg)))
-	 (lambda (op arg) (op arg))))]
+        (define (val e) (ll e bind-map))
+
+        ((lambda (fn) (fn (val op) (val arg)))
+         (lambda (op arg) (op arg))))]
 
     [`(,op ,arg)
       (begin
-	(match op
-	  [op  #:when (member op (list 'len 'f))
-	       (begin
-		 ; (displayln op)
-		 ((lookup bind-map op) (ll arg bind-map)))]
-	  [`(lambda (,_formal-params ...) ,_body)  ((ll op bind-map) (ll arg bind-map))]
-        ; [(? matches-lambda? op)                  ((lookup bind-map op) (ll arg bind-map))]
-        [_
-	  (begin
-	    (define lhs (ll op bind-map))
-	    (define rhs (ll arg bind-map))
-	    (define ret (lhs rhs)) ret)]
-	; ((ll op bind-map) (ll arg bind-map)))]
-	)
-	)]
+        ((ll op bind-map) (ll arg bind-map)))]
 
-    [`(lambda (,formal-params ...) ,body)
+    ; idea: parsing curried lambda is evaluating it as multi args lambda.
+    [`(lambda (,fargs ...) ,body/n)
       (begin
-	(define/contract (fill-free-vars body)
-	  (-> any? any?)
-	  (begin
-	    ; (display 'body)(displayln body)
-	    (match body
-	      [`(if ,b ,then ,els)
-		(begin
-		  (define fv-then (fill-free-vars then))
-		  (define fv-els (fill-free-vars els))
-		  ; filling b without reg `(if ,b ,(fill-free-vars then) ,(fill-free-vars els)))]
-		  `(if ,b ,fv-then ,fv-els))]
+        ; Fill body with current bind-map, leaving body only with its formal args.
+        ; Implicit: use ll's bind-map.
+        (define/contract (fill-free-vars e fargs)
+          (-> any? any? any?)
+          (begin
+            (match e
+              [`(lambda (,fargs/n ...) ,body/n/n)
+                (begin
+                  `(lambda ,fargs/n ,(fill-free-vars body/n/n (append fargs fargs/n))))]
 
-	      [`(lambda (,formal-params2 ...) ,body2)
-		(begin `(lambda ,formal-params2 ,(fill-free-vars body2)))]
+              [`(if ,b ,then ,els)
+                (begin
+                  (define (ffv e) (fill-free-vars e fargs))
+                  ; PICKUP 
+                  ; `(if ,(ffv b) ,(ffv then) ,(ffv els)))]
+                  `(if ,b ,(ffv then) ,(ffv els)))]
 
-	      ; applications (prims or not) have body of length 2.
-	      [body #:when (len-is-2? body) 
-		(begin
-		  (define (f var)
-		    (match var
-		      [(? number? var)                               (cnat var)]
-		      [var #:when (member var formal-params)         var]
-		      [var #:when (member var (hash-keys bind-map))  (lookup bind-map var)]
-		      [`(,a ,b)                                      `(,(f a) ,(f b))]
-		      [v v]))
-		  (map f body))]
+              [`(,(? binary? op) ,a1 ,a2)
+                (begin
+                  (fill-free-vars `((,op ,a1) ,a2) fargs))]
 
-	      [var
-		(begin
-		  (ll var bind-map)
-		  )])))
+              [`(,op ,arg)
+                (begin
+                  (define (ffv e) (fill-free-vars e fargs))
+                  (define (h var)
+                    (match var
+                      [`(,op/n ,arg/n)  `(,(ffv op/n) ,(ffv arg/n))]
+                      [var              (ffv var)]))
 
-	; ; ok
-	; (define t1 (list '7 c7))
-	; ; (check-true #f)
-	; (check-eq? (church->nat (fill-free-vars (first t1))) (church->nat (second t1)))
-	
+                  `(,(h op) ,(h arg)))]
 
-	(evalnew `(lambda ,formal-params ,(fill-free-vars body))))]
+              [var
+                (begin
+                  (cond [(member var fargs)  var]
+                        [else                (ll var bind-map)]))])))
 
+        (evalnew `(lambda ,fargs ,(fill-free-vars body/n fargs))))]
 
-
-
-    [`(letrec ,binds2 ,e)
-	(begin
-	  (define/contract (polyfill name fn-value)
-          ; (-> symbol? matches-lambda? any?)
-	    (-> symbol? any? any?)
-	    `(,name (,Y (lambda (,name) ,fn-value))))
-
-	  (define f1 (first binds2))
-	  (define res (polyfill 'len (second f1)))
-	  (displayln res)
-	  (define pf (second res))
-
-	  (define (f bind)
-	    (match bind
-	      [`(,name (lambda (,formal-params ...) ,body))  (polyfill name (second bind))]
-	      [kv kv]))
-
-	  (define polyfilled-binds2 (map f binds2))
-	  ; (define bms (bind-map-set bind-map polyfilled-binds2))
-	  ; (ll e (bind-map-set bind-map polyfilled-binds2))
-	  c0
-	  )]
-
-    [`(let ,binds2 ,e)
+    [`(letrec ,binds/n ,e)
       (begin
-	(ll e (bind-map-set bind-map binds2)))]
+        (define (adapt todo) todo)
+        (ll `(let ,(adapt binds/n) ,e)))]
 
-    [`(let* ,binds2 ,e)
+    [`(let ,binds/n ,e)
       (begin
-	(define bms (bind-map-set* bind-map binds2))
-	(define ret (ll e bms))
-	ret)]
+        (define bm (bind-map-set binds/n bind-map))
+        (ll e bm))]
 
-    [v  (begin
-	  v)]
-    )) res)
+    [`(let* ,binds/n ,e)
+      (begin
+        (define bm (bind-map-set* binds/n bind-map))
+        (ll e bm))]
 
-  )
+    [v  (lookup v bind-map)]))
+
+(define/contract (churchify-terminal l)
+  (-> literal? procedure?)
+  (match l
+    [(? number? l)  (cnat l)]
+    ['#t            TRUE]
+    ['#f            FALSE]
+    [`'()           NIL]
+    [_ 'unreachable]))
 
 (define/contract (churchify e)
   (-> any? procedure?)
   (match e
-    [(? number? e)                   (cnat e)]
-    [`'()                            NIL]
-    ['#t                             TRUE]
-    ['#f                             FALSE]
-    [`(if ,b ,then ,els)             ((((churchify b) (lambda () (churchify then))) (lambda () (churchify els))))]
-    [`(let ,binds ,e)                (ll e (bind-map-new binds))]
-    [_
-      (begin
-	e)]))
+    [(? literal? e)    (churchify-terminal e)]
+    [`(let ,binds ,e)  (ll e (bind-map-new binds))]
+    [proc proc]))
 
 ; churchify recursively walks the AST and converts each expression in the input language (defined above)
 ;   to an equivalent (when converted back via each church->XYZ) expression in the output language (defined above)
@@ -294,49 +236,33 @@
 (define (church-compile program)
   ; Define primitive operations and needed helpers using a top-level let form?
   (churchify
-   `(let ([add1 ,SUCC]
-	  [succ ,SUCC]
-	  [null? ,NULL?]
+   `(let (
+          [add1 ,SUCC]
+          [succ ,SUCC]
+          [null? ,NULL?]
           [sub1 ,PRED]
           [cons ,CONS]
           [not ,NOT]
           [and ,AND]
           [car ,CAR]
           [cdr ,CDR]
-          [nol? ,ZERO?]
-          [zero? ,ZERO?]
           [= ,EQ?]
           [+ ,PLUS]
+
+          [nol? ,ZERO?]
+          [zero? ,ZERO?]
           [- ,MINUS]
           [* ,MUL]
-	  )
+    )
       ,program)))
-
-; ; goal
-; (define prog
-;   '(letrec ([len (lambda (lst)
-;                    (if (null? lst)
-;                        0
-;                        (add1 (len (cdr lst)))))])
-;      (len (cons 1 (cons 2 (cons 3 (cons 4 (cons 5 (cons '() '())))))))))
 
 ; verif slide example
 (define prog
   `(let ([f (,Y (lambda (f)
-		  (lambda (x)
-		    ; (if (= x 0) 1 (* x (f (- x 1)))))))]) (f 20)))
-		    ; (if (zero? x) 1 (* x (f (- x 1)))))))]) (f 20)))
-		    (if (,ZERO? x) 1 (* x (f (- x 1)))))))]) (f 20)))
-
-; ; let body can be a curried lambda: yes, but not applying the args in the body yet
-; ; (((lambda (a) (lambda (b) (+ a b))) 12) 13)
-; ; (churchify `(let ([+ ,PLUS])
-; ; 	      (((lambda (a) (lambda (b) (+ a b))) 12) 13)))
-; ; (churchify `(let ([add1 ,SUCC])
-; ; 	      (((lambda (a) (lambda (b) (a b))) add1) 6)))
-; (define cc (churchify `(let ([add1 ,SUCC])
-; 	      (lambda (a) (lambda (b) (a b))))))
-; (church->nat ((cc PRED) c4))
+      (lambda (x)
+        ; (if (= x 0) 1 (* x (f (- x 1)))))))]) (f 20)))
+        ; (if (zero? x) 1 (* x (f (- x 1)))))))]) (f 20)))
+        (if (,ZERO? x) 1 (* x (f (- x 1)))))))]) (f 20)))
 
 ; (define compiled (church-compile prog))
 ; (define cv-comp (eval compiled (make-base-namespace)))
