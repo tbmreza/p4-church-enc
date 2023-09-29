@@ -153,7 +153,6 @@
       (begin
         ((ll op bind-map) (ll arg bind-map)))]
 
-    ; idea: parsing curried lambda is evaluating it as multi args lambda.
     [`(lambda (,fargs ...) ,body/n)
       (begin
         ; Fill body with current bind-map, leaving body only with its formal args.
@@ -168,10 +167,13 @@
 
               [`(if ,b ,then ,els)
                 (begin
+                  (display 'b)(displayln b)
                   (define (ffv e) (fill-free-vars e fargs))
-                  ; PICKUP 
-                  ; `(if ,(ffv b) ,(ffv then) ,(ffv els)))]
-                  `(if ,b ,(ffv then) ,(ffv els)))]
+                  (define res (ffv b))
+                  (display 'res)(displayln res)
+                  ; verif that ffv b works on vars that were defined in prev square brackets.
+                  ; next case would be var value provided in lambda body.
+                  `(if ,(ffv b) ,(ffv then) ,(ffv els)))]
 
               [`(,(? binary? op) ,a1 ,a2)
                 (begin
@@ -240,6 +242,7 @@
           [add1 ,SUCC]
           [succ ,SUCC]
           [null? ,NULL?]
+          [nil? ,NULL?]
           [sub1 ,PRED]
           [cons ,CONS]
           [not ,NOT]
