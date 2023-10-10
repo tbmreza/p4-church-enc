@@ -131,7 +131,8 @@
   (-> any? any? procedure?)
   (define (val e) (ll e bind-map))
   (match body
-    [(? literal? body)  (churchify-terminal body)]
+    ; [(? literal? body)  (churchify-terminal body)]
+    [(? literal? body)  (churchify body)]
 
     [`(if ,b ,then ,els)
        ((((ll b bind-map) (lambda () (ll then bind-map))) (lambda () (ll els bind-map))))]
@@ -229,21 +230,109 @@
 
     [v  (lookup v bind-map)]))
 
-(define/contract (churchify-terminal l)
-  (-> literal? procedure?)
+(define (churchify-terminal l)
   (match l
     [(? number? l)  (cnat l)]
     ['#t            TRUE]
     ['#f            FALSE]
-    [`'()           NIL]
-    [_ 'unreachable]))
+    [`'()           NIL]))
 
-(define/contract (churchify e)
-  (-> any? procedure?)
+; bak
+; (define (churchify e)
+;   (define (left-left bind acc)
+;     (match bind
+;       ['()           acc]
+;       [`(,x . (,e))  `((lambda (,x) ,acc) ,(churchify e))]))
+;
+;   (match e
+;     [`(net* ,binds ,e-b)
+;       (foldr left-left (churchify e-b) binds)]
+;
+;     [`(net ,binds ,e-b)
+;       (foldl left-left (churchify e-b) binds)]
+;
+;     [(? literal? e)    (churchify-terminal e)]
+;     [`(let ,binds ,e)  (ll e (bind-map-new binds))]
+;
+;     ; ; idea: fold over binds first, then on body
+;     ; [`(net* ,binds ,e-b)
+;     ;   (define (left-left bind acc)
+;     ;     (match bind
+;     ;       ['()           acc]
+;     ;       [`(,x . (,e))  `((lambda (,x) ,(churchify e)) ,acc)]))
+;     ;   (define folded (foldl left-left (lambda (x) x) binds))
+;     ;   (folded (churchify e-b))]
+;
+;     [`(if ,e0 ,e1 ,e2)
+;       (churchify `(,e0 (lambda () ,e1) (lambda () ,e2)))]
+;
+;     [`(lambda ,xs ,e-body)
+;       (define (h xs)
+;         (match xs
+;           ['()           (churchify e-body)]
+;           [`(,x . ,rst)  `(lambda (,x) ,(h rst))]))
+;       (h xs)]
+;
+;     [`(,binary-op ,e1 ,e2)
+;       `((,(churchify binary-op) ,(churchify e1)) ,(churchify e2))]
+;       ; ((f 1) 2)
+;
+;     [`(,op ,arg)
+;       `(,(churchify op) ,(churchify arg))]
+;       ; (f 1)
+;
+;     [(not (? list? e))  e]
+;
+;     [(? list es)
+;       (define (surround es)
+;         (match es
+;           [`(,fst ,snd . ,rst)  (surround `((,(churchify fst) ,(churchify snd)) ,@rst))]
+;           [es                   (first es)])) ; simple guy, I see pair of extraneous parens, I apply first. probably empty lists etc etc
+;       (surround es)]
+;
+;     [_ e]
+;
+;     ))
+
+(define (churchify e)
+  (define (left-left bind acc)
+    (match bind
+      ['()           acc]
+      [`(,x . (,e))  `((lambda (,x) ,acc) ,(churchify e))]))
+
   (match e
+    [`(let* ,binds ,e-b)
+      (foldr left-left (churchify e-b) binds)]
+
+    [`(let ,binds ,e-b)
+      (foldl left-left (churchify e-b) binds)]
+
     [(? literal? e)    (churchify-terminal e)]
-    [`(let ,binds ,e)  (ll e (bind-map-new binds))]
-    [proc proc]))
+
+    [`(if ,e0 ,e1 ,e2)
+      (churchify `(,e0 (lambda () ,e1) (lambda () ,e2)))]
+
+    [`(lambda ,xs ,e-body)
+      (define (h xs)
+        (match xs
+          ['()           (churchify e-body)]
+          [`(,x . ,rst)  `(lambda (,x) ,(h rst))]))
+      (h xs)]
+
+    [`(,binary-op ,e1 ,e2)
+      `((,(churchify binary-op) ,(churchify e1)) ,(churchify e2))]
+
+    [`(,op ,arg)
+      `(,(churchify op) ,(churchify arg))]
+
+    [(not (? list? _))  e]
+
+    [(? list es)
+      (define (surround es)
+        (match es
+          [`(,fst ,snd . ,rst)  (surround `((,(churchify fst) ,(churchify snd)) ,@rst))]
+          [es                   (first es)])) ; simple guy, I see pair of extraneous parens, I apply first. probably empty lists etc etc
+      (surround es)]))
 
 ; churchify recursively walks the AST and converts each expression in the input language (defined above)
 ;   to an equivalent (when converted back via each church->XYZ) expression in the output language (defined above)
@@ -251,40 +340,32 @@
 ; Takes a whole program in the input language, and converts it into an equivalent program in lambda-calc
 ; Build a let expression containing all helpers and the input program.
 ; Delegate the expression to churchify.
+; (define (church-compile program)
+;   ; Define primitive operations and needed helpers using a top-level let form?
+;   (churchify
+;    `(let (
+;           [add1 ,SUCC]
+;           [succ ,SUCC]
+;           [null? ,NULL?]
+;           [nil? ,NULL?]
+;           [sub1 ,PRED]
+;           [cons ,CONS]
+;           [not ,NOT]
+;           [and ,AND]
+;           [car ,CAR]
+;           [cdr ,CDR]
+;           [= ,EQ?]
+;           [+ ,PLUS]
+;
+;           [nol? ,ZERO?]
+;           [zero? ,ZERO?]
+;           [- ,MINUS]
+;           [* ,MUL]
+;           )
+;       ,program)))
+
 (define (church-compile program)
-  ; Define primitive operations and needed helpers using a top-level let form?
-  (churchify
-   `(let (
-          [add1 ,SUCC]
-          [succ ,SUCC]
-          [null? ,NULL?]
-          [nil? ,NULL?]
-          [sub1 ,PRED]
-          [cons ,CONS]
-          [not ,NOT]
-          [and ,AND]
-          [car ,CAR]
-          [cdr ,CDR]
-          [= ,EQ?]
-          [+ ,PLUS]
-
-          [nol? ,ZERO?]
-          [zero? ,ZERO?]
-          [- ,MINUS]
-          [* ,MUL]
-          )
-      ,program)))
-
-; verif slide example
-(define prog
-  `(let ([f (,Y (lambda (f)
-                  (lambda (x)
-                    ; (if (= x 0) 1 (* x (f (- x 1)))))))]) (f 20)))
-                    ; (if (zero? x) 1 (* x (f (- x 1)))))))]) (f 20)))
-                    (if (,ZERO? x) 1 (* x (f (- x 1)))))))]) (f 20)))
-
-; (define compiled (church-compile prog))
-; (define cv-comp (eval compiled (make-base-namespace)))
-; (define unchurch church->nat)
-; (define v-comp (unchurch cv-comp))
-; (displayln v-comp)
+  (evalnew (churchify
+    `(let ([add1 ,SUCC] [null? ,NULL?] [sub1 ,PRED] [cons ,CONS] [not ,NOT] [and ,AND] [car ,CAR]
+           [cdr ,CDR] [= ,EQ?] [+ ,PLUS] [zero? ,ZERO?] [nol? ,ZERO?] [- ,MINUS] [* ,MUL])
+    ,program))))
