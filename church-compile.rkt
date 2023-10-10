@@ -15,27 +15,27 @@
 
 ;; Input language:
 ;
-; e ::= (letrec ([x (lambda (x ...) e)]) e)    
-;     | (let ([x e] ...) e)  
+; e ::= (letrec ([x (lambda (x ...) e)]) e)
+;     | (let ([x e] ...) e)
 ;     | (let* ([x e] ...) e)
 ;     | (lambda (x ...) e)
-;     | (e e ...)    
-;     | x  
+;     | (e e ...)
+;     | x
 ;     | (and e ...) | (or e ...)
 ;     | (if e e e)
 ;     | (prim e) | (prim e e)
 ;     | datum
-; datum ::= nat | (quote ()) | #t | #f 
-; nat ::= 0 | 1 | 2 | ... 
+; datum ::= nat | (quote ()) | #t | #f
+; nat ::= 0 | 1 | 2 | ...
 ; x is a symbol
 ; prim is a primitive operation in list prims
-; The following are *extra credit*: -, =, sub1  
+; The following are *extra credit*: -, =, sub1
 (define prims '(+ * - = add1 sub1 cons car cdr null? not zero?))
 
 ; This input language has semantics identical to Scheme / Racket, except:
 ;   + You will not be provided code that yields any kind of error in Racket
 ;   + You do not need to treat non-boolean values as #t at if, and, or forms
-;   + primitive operations are either strictly unary (add1 sub1 null? zero? not car cdr), 
+;   + primitive operations are either strictly unary (add1 sub1 null? zero? not car cdr),
 ;                                           or binary (+ - * = cons)
 ;   + There will be no variadic functions or applications---but any fixed arity is allowed
 
@@ -61,7 +61,8 @@
 (define (church->bool c-bool)
   ((c-bool (lambda (_) #t)) (lambda (_) #f)))
 (define (church->boolean b)
-  ((church->bool b) '()))
+  ; ((church->bool b) '()))
+  ((church->bool b) #f))
 
 ; A church-encoded cons-cell is a function taking a when-cons callback, and a when-null callback (thunk),
 ;   returning when-cons applied on the car and cdr elements
@@ -101,11 +102,11 @@
                     [else                         (hash-ref outer e)]))
 
     (if (procedure? v)
-      (void)
-      (raise-result-error (string->symbol "church-encoded type") "procedure?" v))
+        (void)
+        (raise-result-error (string->symbol "church-encoded type") "procedure?" v))
 
     (cons (first kv) v))
-    
+
   (define bm (make-immutable-hash (map f binds)))
   (hash-union outer
               bm
@@ -117,7 +118,7 @@
     (define e (second bind))
     (define v (cond [(number? e)                  (cnat e)]
                     [(member e (hash-keys acc))   (hash-ref acc e)]
-                    [(not (hash-ref outer e #f))  (begin (ll e acc))]
+                    [(not (hash-ref outer e #f))  (ll e acc)]
                     [else                         (hash-ref outer e)]))
     (hash-set acc (first bind) v))
 
@@ -128,88 +129,103 @@
 
 (define/contract (ll body bind-map)
   (-> any? any? procedure?)
+  (define (val e) (ll e bind-map))
   (match body
     [(? literal? body)  (churchify-terminal body)]
 
     [`(if ,b ,then ,els)
-      (begin
-        ((((ll b bind-map) (lambda () (ll then bind-map))) (lambda () (ll els bind-map)))))]
+       ((((ll b bind-map) (lambda () (ll then bind-map))) (lambda () (ll els bind-map))))]
 
     [`(,(? binary? op) ,a1 ,a2)
-      (begin
-        (define (val e) (ll e bind-map))
-
-        ((lambda (fn) (fn (val op) (val a1) (val a2)))
-         (lambda (op a1 a2) ((op a1) a2))))]
+      ((lambda (fn) (fn (val op) (val a1) (val a2)))
+       (lambda (op a1 a2) ((op a1) a2)))]
 
     [`(,(? unary? op) ,arg)
-      (begin
-        (define (val e) (ll e bind-map))
-
-        ((lambda (fn) (fn (val op) (val arg)))
-         (lambda (op arg) (op arg))))]
-
-    [`(,op ,arg)
-      (begin
-        ((ll op bind-map) (ll arg bind-map)))]
+      ((lambda (fn) (fn (val op) (val arg)))
+       (lambda (op arg) (op arg)))]
 
     [`(lambda (,fargs ...) ,body/n)
-      (begin
-        ; Fill body with current bind-map, leaving body only with its formal args.
-        ; Implicit: use ll's bind-map.
-        (define/contract (fill-free-vars e fargs)
-          (-> any? any? any?)
-          (begin
-            (match e
-              [`(lambda (,fargs/n ...) ,body/n/n)
-                (begin
-                  `(lambda ,fargs/n ,(fill-free-vars body/n/n (append fargs fargs/n))))]
+     (begin
+       ; Fill body with current bind-map, leaving body only with its formal args.
+       ; Implicit: use ll's bind-map.
+       (define/contract (fill-free-vars e fargs)
+         (-> any? any? any?)
+         (begin
+           (define (ffv e) (fill-free-vars e fargs))
+           (match e
+             [`(lambda (,fargs/n ...) ,body/n/n)
+              (begin
+                `(lambda ,fargs/n ,(fill-free-vars body/n/n (append fargs fargs/n))))]
 
-              [`(if ,b ,then ,els)
-                (begin
-                  (display 'b)(displayln b)
-                  (define (ffv e) (fill-free-vars e fargs))
-                  (define res (ffv b))
-                  (display 'res)(displayln res)
-                  ; verif that ffv b works on vars that were defined in prev square brackets.
-                  ; next case would be var value provided in lambda body.
-                  `(if ,(ffv b) ,(ffv then) ,(ffv els)))]
+             [`(if ,b ,then ,els)
+              (begin
+                ; We can reduce right here if none is member of formal args.
+                (define filled (list (ffv b) (ffv then) (ffv els)))
 
-              [`(,(? binary? op) ,a1 ,a2)
-                (begin
-                  (fill-free-vars `((,op ,a1) ,a2) fargs))]
+                (define none-is-fargs (andmap (lambda (var) (not (member var fargs))) filled))
+                (cond [none-is-fargs
+                        (begin
+                          (((first filled) (second filled)) (third filled)))]
+                      [else
+                        (begin
+                          (define (try-church->boolean)
+                            (define filled-b (first filled))
+                            (cond
+                              [(member (object-name filled-b) (list 'TRUE 'FALSE))  (church->boolean filled-b)]
+                              [else                                                 filled-b]))
 
-              [`(,op ,arg)
-                (begin
-                  (define (ffv e) (fill-free-vars e fargs))
-                  (define (h var)
-                    (match var
-                      [`(,op/n ,arg/n)  `(,(ffv op/n) ,(ffv arg/n))]
-                      [var              (ffv var)]))
+                          (define new-if `(if ,(try-church->boolean) ,(second filled) ,(third filled)))
+                          new-if)]))]
 
-                  `(,(h op) ,(h arg)))]
+             [`(,(? binary? op) ,a1 ,a2)
+              (begin
+                ; We can reduce right here if none is member of formal args.
+                (define filled (list (ffv op)(ffv a1)(ffv a2)))
 
-              [var
-                (begin
-                  (cond [(member var fargs)  var]
-                        [else                (ll var bind-map)]))])))
+                (define none-is-fargs (andmap (lambda (var) (not (member var fargs))) filled))
 
-        (evalnew `(lambda ,fargs ,(fill-free-vars body/n fargs))))]
+                FALSE
+
+                )]
+
+             [`(,op ,arg)  ; unary? or user defined lambda
+              (begin
+                (define filled `(,(ffv op) ,(ffv arg)))
+
+                ; defer: ffv with optional arg none-is-fargs
+
+                ; We can reduce right here if none is member of formal args.
+                (define none-is-fargs (andmap (lambda (var) (not (member var fargs))) filled))
+                (cond [none-is-fargs  ((first filled) (second filled))]
+                      [else           filled]))]
+
+             [var
+               (cond [(member var fargs)  var]
+                     [else                (ll var bind-map)])])))
+
+       ; (evalnew `(lambda ,fargs ,(fill-free-vars body/n fargs))))]
+       ; unpack and replace
+       ; (ll ?? bind-map)
+       (define (bod)
+           (define ret (fill-free-vars body/n fargs))
+           (fill-free-vars body/n fargs)
+)
+       (evalnew `(lambda ,fargs ,(bod)))
+       )]
+
+    [`(,op ,arg)
+      ((ll op bind-map) (ll arg bind-map))
+      ; `(,(churchify op) ,(churchify arg))  ; goal
+      ]
 
     [`(letrec ,binds/n ,e)
-      (begin
-        (define (adapt todo) todo)
-        (ll `(let ,(adapt binds/n) ,e)))]
+     'todo]
 
     [`(let ,binds/n ,e)
-      (begin
-        (define bm (bind-map-set binds/n bind-map))
-        (ll e bm))]
+      (ll e (bind-map-set binds/n bind-map))]
 
     [`(let* ,binds/n ,e)
-      (begin
-        (define bm (bind-map-set* binds/n bind-map))
-        (ll e bm))]
+      (ll e (bind-map-set* binds/n bind-map))]
 
     [v  (lookup v bind-map)]))
 
@@ -256,16 +272,16 @@
           [zero? ,ZERO?]
           [- ,MINUS]
           [* ,MUL]
-    )
+          )
       ,program)))
 
 ; verif slide example
 (define prog
   `(let ([f (,Y (lambda (f)
-      (lambda (x)
-        ; (if (= x 0) 1 (* x (f (- x 1)))))))]) (f 20)))
-        ; (if (zero? x) 1 (* x (f (- x 1)))))))]) (f 20)))
-        (if (,ZERO? x) 1 (* x (f (- x 1)))))))]) (f 20)))
+                  (lambda (x)
+                    ; (if (= x 0) 1 (* x (f (- x 1)))))))]) (f 20)))
+                    ; (if (zero? x) 1 (* x (f (- x 1)))))))]) (f 20)))
+                    (if (,ZERO? x) 1 (* x (f (- x 1)))))))]) (f 20)))
 
 ; (define compiled (church-compile prog))
 ; (define cv-comp (eval compiled (make-base-namespace)))

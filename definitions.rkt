@@ -7,9 +7,14 @@
   (eval data (make-base-namespace)))
 
 (define (any? _) #t)
+
+(define (len-is-n? n l)
+  (cond [(not (list? l))  #f]
+        [l                (= n (length l))]))
+
 (define (len-is-2? l)
   (cond [(not (list? l))  #f]
-	[l                (= 2 (length l))]))
+        [l                (= 2 (length l))]))
 
 (define (literal? v)
   (or (number? v) (member v `(#t #f '()))))
@@ -68,7 +73,9 @@
 (define TRUE   (lambda (a) (lambda (_) a)))
 (define FALSE  (lambda (_) (lambda (b) b)))
 (define NOT    (λ (b) ((b FALSE) TRUE)))
-(define ZERO?  (lambda (n) ((n (lambda (x) (x FALSE))) TRUE)))
+; (define ZERO?  (lambda (n) ((n (lambda (x) (x FALSE))) TRUE)))  ; ((((ZERO? c1) '()) 11) 32)
+(define ZERO?  (lambda (n)
+                 ((n (lambda (_) FALSE)) TRUE)))
 (define LEQ?   (lambda (m) (lambda (n) (ZERO? ((MINUS m) n)))))
 (define AND    (lambda (p) (lambda (q) ((p q) p))))
 (define EQ?    (lambda (m) (lambda (n) ((AND ((LEQ? m) n)) ((LEQ? n) m)))))
