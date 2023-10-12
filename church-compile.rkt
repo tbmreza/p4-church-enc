@@ -100,59 +100,44 @@
     [(? literal? e)    (churchify-terminal e)]
 
     [`(if ,e0 ,e1 ,e2)
-      ; `(,(churchify `(,(churchify e0) (lambda () ,(churchify e1)) (lambda () ,(churchify e2)))))]
-      ; `(,(churchify e0) (lambda () ,(churchify e1)) (lambda () ,(churchify e2)))]
       (churchify `(,e0 (lambda () ,e1) (lambda () ,e2)))]
+      ; `(,(churchify `(,e0 (lambda () ,e1) (lambda () ,e2))))]
 
     [`(lambda ,xs ,e-body)
+      ; (display "inp:")(displayln e)
       (define (h xs)
         (match xs
+          ; PICKUP omega doesn't hang if not churchified.
           ; always churchified even though thunked to prevent eval?
           ['()           (churchify e-body)]
           ; ['()           e-body]
           [`(,x . ,rst)  `(lambda (,x) ,(h rst))]))
-      (h xs)
-      ; (churchify (h xs))
-      ]
-
-    [`(,binary-op ,e1 ,e2)
-      ; (display 'inp:)(displayln e)
-      (churchify `((,binary-op ,e1) ,e2))
-      ; (churchify `((,binary-op (lambda () ,e1)) (lambda () ,e2)))
-
-      ; (define bp
-      ;   `((,binary-op ,e1) ,e2)
-      ; )
-      ; ; (display 'bp)(displayln bp)
-      ;
-      ; (define hc?
-      ;   (match e2
-      ;     [`(+ b c)  #t]
-      ;     [_
-      ;       #f]))
-      ; ; (display 'hc?)(displayln hc?)
-      ;
-      ; (define ret (cond
-      ;   ; [hc?   `((,binary-op ,e1) ,(churchify e2))]
-      ;   ; [else  bp]))
-      ;   [else  (churchify bp)]))
-      ; ret
-
+      (define brewed (h xs))
+      ; (display 'done:)(displayln brewed)
+      ; (churchify brewed)
+      brewed
       ]
 
     [`(,op ,arg)
       (define oa `(,(churchify op) ,(churchify arg)))
-      ; (display 'oa:)(displayln oa)
+      ; (display "oa:\t")(displayln oa)
       oa]
 
     [(not (? list? _))  e]
 
     [(? list es)
+      ; (display "inp:")(displayln e)
       (define (surround es)
         (match es
           [`(,fst ,snd . ,rst)  (surround `((,(churchify fst) ,(churchify snd)) ,@rst))]
           [es                   (first es)])) ; simple guy, I see pair of extraneous parens, I apply first. probably empty lists etc etc
-      (surround es)]))
+          ; [es                   es]))
+      (define sur (surround es))
+      (display "sur:\t")(displayln sur)
+      sur
+      ]))
+;  (((#<procedure:TRUE> #<procedure>) ((lambda (U) #<procedure>) (lambda (u) (u u)))))
+;  (((TRUE c3) ((lambda (U) c5) (lambda (u) (u u)))))
 
 ; Takes a whole program in the input language, and converts it into an equivalent program in lambda-calc
 ; Build a let expression containing all helpers and the input program.

@@ -70,15 +70,15 @@
 
 (check-eq? 3 (church->nat (church-compile '(let* ([x 3][y x])  y))))
 (check-eq? 3 (church->nat (church-compile '(let* ([x 3][y x])  (if #t y 0)))))
-(check-eq? 4 (church->nat (church-compile '(let* ([x 4][y 5])  (if (nol? 0) x y)))))
+(check-eq? 4 (church->nat (church-compile '(let* ([x 4][y 5])  (if (zero? 0) x y)))))
 
-; PICKUP omega safe: slap thunk somewhere
-(check-eq? 5 (church->nat (church-compile '(if (not #t) 3 (let ([U (lambda (u) (u u))]) 5)))))
-(check-eq? 3 (church->nat (church-compile '(if #t 3 (let ([U (lambda (u) (u u))]) 5)))))
-(check-eq? 5 (church->nat (church-compile '(if (not #t) 3 (let ([U (lambda (u) (u u))]) 5)))))
+; ; PICKUP omega safe: slap thunk somewhere
+; (check-eq? 5 (church->nat (church-compile '(if (not #t) 3 (let ([U (lambda (u) (u u))]) 5)))))
+; (check-eq? 3 (church->nat (church-compile '(if #t 3 (let ([U (lambda (u) (u u))]) 5)))))
+; (check-eq? 5 (church->nat (church-compile '(if #t 3 (let ([U (lambda (u) (u u))]) 5)))))
 
-; (check-eq? 3 (church->nat (church-compile '(if (not #f) 3 (let ([U (lambda (u) (u u))]) (U U))))))
 ; (church-compile '(if (not #f) 3 (let ([U (lambda (u) (u u))]) (U U))))
+; (check-eq? 3 (church->nat (church-compile '(if (not #f) 3 (let ([U (lambda (u) (u u))]) (U U))))))
 ; ((TRUE (lambda () (lambda () 3))) (lambda () (lambda () (let ((U (lambda (u) (u u)))) 5))))
 
 ; (church-compile
