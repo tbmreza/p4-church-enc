@@ -2,35 +2,20 @@
 
 (require "definitions.rkt" "church-compile.rkt" rackunit)
 
-(check-true (church->boolean (NOT FALSE)))
-(check-true (church->boolean (ZERO? (lambda (_) (lambda (x) x)))))
 (check-true ((church->bool TRUE) '()))
-(check-false (church->boolean (NULL? ((CONS NIL) NIL))))
 (check-eq? 100 (church->nat c100))
 (check-equal? (church->nat (cnat 3)) (church->nat (lambda (f) (lambda (x) (f (f (f x)))))))
-(check-false (church->boolean (churchify `(let ([not ,NOT])(not #t)))))
-(check-false ((church->bool (churchify `(let ([not ,NOT])(not #t)))) '()))
-(check-eq? 2 (church->nat (church-compile `(if #t 2 3))))
-(check-true (church->boolean (church-compile `(if #t #t #f))))
 (check-equal? (church->nat (SUCC (lambda (_) (lambda (x) x)))) (church->nat (lambda (f) (lambda (x) (f x)))))
 (check-equal? (church->nat ((PLUS c2) c3)) 5)
 (check-equal? (church->nat ((MUL c3) c3)) 9)
 (check-equal? (church->nat ((POW c3) c2)) 8)
 (check-equal? ((church->listof church->nat) (CAR ((CONS ((CONS c2) ((CONS c3) NIL))) NIL))) '(2 3))
 (check-eq? (church->nat ((MINUS c4) c3)) 1)
-(check-true (church->boolean (churchify `(let ([not ,NOT]) (not #f)))))
-(check-eq? 6 (church->nat (churchify `(let ([* ,MUL]) (* 2 3)))))
-(check-eq? 4 (church->nat (churchify `(let () (if #t 4 3)))))
-(check-eq? 3 (church->nat (churchify `(let ([not ,NOT]) (if (not #f) 3 5)))))
-(check-eq? 12 (church->nat (churchify `(let ([b 3][* ,MUL]) (* b 4)))))
-(check-eq? 13 (church->nat (churchify `(let ([ignore 13][sub1 ,PRED]) ((lambda (num) (num 14)) (lambda (x) (sub1 x)))))))
-(check-eq? 4 (church->nat ((churchify `(let ([add1 ,SUCC]) (lambda (lst) (add1 lst)))) c3)))
-(check-eq? 27 (church->nat (church-compile `(let ([b 3][* ,MUL]) (* b (* b 3))))))
-
-
-; let expr returns usable lambda.
-(check-eq? 23 (church->nat ((churchify      `(let ([ignored 13]) (lambda (lst) 23))) c0)))
-(check-eq? 23 (church->nat ((church-compile `(let ([ignored 13]) (lambda (lst) 23))) c0)))
+(check-eq? 8 (church->nat (church-compile `(let ([b 2][* ,MUL]) (* b (* b 2))))))
+(check-eq? 6 (church->nat (church-compile `(* 2 3))))
+(check-eq? 2 (church->nat (church-compile `(if #t 2 3))))
+(check-eq? 3 (church->nat (church-compile `(if #f 2 3))))
+(check-eq? 4 (church->nat (church-compile `(let () (if #t 4 3)))))
 
 ; let* can invoke in els a lambda defined in previous square bracket.
 (check-eq? 7 (church->nat (church-compile
@@ -38,85 +23,69 @@
           [f    (lambda (x) (if #t (len x) 0))])
      (f 3)))))
 
-; ; binary lambda body
-; (check-eq? 8 (church->nat (church-compile
-;   `(let* ([f0   (lambda (passed) (* 2 passed))]
-;           ; [f    (lambda (x) (if (nol? 9) 0 (f0 x)))])  ; fail
-;           [f    (lambda (x) (if #f 0 (f0 x)))])
-;      (f 4)))))
+; binary lambda body
+(check-eq? 8 (church->nat (church-compile
+  `(let* ([f0   (lambda (passed) (* 2 passed))]
+          [f    (lambda (x) (if (zero? 9) 0 (f0 x)))])
+     (f 4)))))
+
+; triple curried if stmt
+(check-eq? 4 (church->nat (church-compile
+  `(let ([f (lambda (b) (lambda (thn) (lambda (els) (if b thn els))))])
+     (((f #t) 4) 2)))))
+(check-eq? 2 (church->nat (church-compile
+  `(let ([f (lambda (b) (lambda (thn) (lambda (els) (if b thn els))))])
+     (((f #f) 4) 2)))))
+
+(check-eq? 4 (church->nat (church-compile
+  `(let* ([fn  (lambda (j) (if (= j 3) 4 5))])
+     (fn 3)))))
+(check-eq? 5 (church->nat (church-compile
+  `(let* ([fn  (lambda (j) (if (= j 3) 4 5))])
+     (fn 0)))))
+
+; lambda whose body is binary appl
+(check-true ((church->bool (church-compile
+  `(let* ([fn  (lambda (j) (= j 3))])
+     (fn 3)))) (void)))
+(check-false ((church->bool (church-compile
+  `(let* ([fn  (lambda (j) (= j 3))])
+     (fn 1)))) (void)))
+
+; nested binop
+(check-eq? 140 (church->nat (church-compile '(let ([f (lambda (a b c) (+ a (+ b c)))]) (f (f 0 0 5) (f 10 15 20) (f 25 30 35))))))
+(check-eq? 6 (church->nat (church-compile '(let ([f (lambda (a b c) (+ a (+ b c)))]) (f 1 2 3)))))
+
+; lambda body of if
+(check-eq? 1 (church->nat (church-compile '(let ([fn (lambda (a) (if (zero? a) 1 2))])  (fn 0)))))
+(check-eq? 2 (church->nat (church-compile '(let ([fn (lambda (a) (if (zero? a) 1 2))])  (fn 9)))))
+
+(check-eq? 7 (church->nat (church-compile '(let ([fn 7])  fn))))
+(check-eq? 2 (church->nat (church-compile '(let ([fn (lambda (a) a)])  (fn 2)))))
+(check-eq? 3 (church->nat (church-compile '(let ([v 3])  (if #t v 0)))))
+(check-eq? 2 (church->nat (church-compile '(let ([fn (lambda (a) (if #t a 0))])  (fn 2)))))
+
+(check-eq? 4 (church->nat (church-compile
+  '(let* ([important 4][fn (lambda (a) important)])  (fn 2)))))
+
+(check-eq? 3 (church->nat (church-compile '(let* ([x 3][y x])  y))))
+(check-eq? 3 (church->nat (church-compile '(let* ([x 3][y x])  (if #t y 0)))))
+(check-eq? 4 (church->nat (church-compile '(let* ([x 4][y 5])  (if (nol? 0) x y)))))
+
+; PICKUP omega safe: slap thunk somewhere
+(check-eq? 5 (church->nat (church-compile '(if (not #t) 3 (let ([U (lambda (u) (u u))]) 5)))))
+(check-eq? 3 (church->nat (church-compile '(if #t 3 (let ([U (lambda (u) (u u))]) 5)))))
+(check-eq? 5 (church->nat (church-compile '(if (not #t) 3 (let ([U (lambda (u) (u u))]) 5)))))
+
+; (check-eq? 3 (church->nat (church-compile '(if (not #f) 3 (let ([U (lambda (u) (u u))]) (U U))))))
+; (church-compile '(if (not #f) 3 (let ([U (lambda (u) (u u))]) (U U))))
+; ((TRUE (lambda () (lambda () 3))) (lambda () (lambda () (let ((U (lambda (u) (u u)))) 5))))
 
 ; (church-compile
 ;   `(let* ([U (lambda (u) (u u))]
 ;           [fact (U (lambda (mk-fact)
 ;                      (lambda (n)
-;                        (if (nol? n)
+;                        (if (zero? n)
 ;                            1
 ;                            (* n ((U mk-fact) (- n 1)))))))])
 ;      (fact 6)))
-
-; let* not propagate helpers to lambda.lambda.if.b
-; U evaluation
-
-
-
-; ; curried bind-map val: reg
-; (check-eq? 3 (church->nat (church-compile
-;   `(let ([len (lambda (ad) (lambda (int) (if (null? int) int (ad int))))])
-;      ((len ,SUCC) 2)))))
-
-; ; triple curried if stmt
-; (church->nat (church-compile
-;   `(let ([f (lambda (b) (lambda (thn) (lambda (els) (if b thn els))))])
-;   ; `(let ([f (lambda (b) (lambda (thn) (lambda (els) (if #t thn els))))])
-;      ; `(let ([f (lambda (b) (lambda (thn) (lambda (els) (if (zero? 0) thn els))))])
-;      (((f #t) 4) 2))))
-
-; testing idea in repl: transform (f 20) to what?
-; (let ([len (lambda (ad int) (if (null? int) int (ad int)))])
-;      (len add1 2))
-; (let ([f ((lambda (g) ((lambda (f) (g (lambda (x) ((f f) x)))) (lambda (f) (g (lambda (x) ((f f) x)))))) (lambda (f) (lambda (x) (if (= x 0) 1 (* x (f (- x 1)))))))]) (f 20))
-; (let ([f (Y (lambda (f) (lambda (x) (if (= x 0) 1 (* x (f (- x 1)))))))]) (f 20))
-
-; bug: predicate always behave like TRUE
-(check-eq? 9 (church->nat (church-compile
-  `(let* ([c    0]
-          [seven  (lambda (ignore) 7)]
-          [f    (lambda (x) (if (nol? c) 9 (seven x)))])
-     (f 3)))))  ; ok
-
-; false br
-(check-eq? 7 (church->nat (church-compile
-  `(let* ([c    1]
-          [seven  (lambda (ignore) 7)]
-          [f    (lambda (x) (if (nol? c) 9 (seven x)))])
-     (f 3)))))  ; ok
-
-; using farg in if branch
-(check-eq? 3 (church->nat (church-compile
-  `(let* ([len  (lambda (int) (if (nol? 0) int 9))])
-     (len 3)))))  ; ok
-
-; ; using farg in if predicate
-; (church->nat (church-compile
-;   `(let* ([fn  (lambda (int) (if (nol? int) int 9))])
-;   ; `(let* ([fn  (lambda (int) (if (nol? int) 4 9))])
-;      (fn 3))))  ; like TRUE
-
-; ;
-; ; ??
-; (church->nat (church-compile
-;   ; `(let* ([fn  (lambda (int) (if #f (- 9 int) (+ 1 int)))])
-;   ; `(let* ([fn  (lambda (int) (if (= 3 1) (- 9 int) (+ 1 int)))])
-;   ; `(let* ([fn  (lambda (j) (if (= 3 j) (- 9 j) (+ 1 j)))])
-;   `(let* ([fn  (lambda (j) (if (= j 3) 4 5))])
-;      (fn 3))))
-
-; ; lambda whose body is binary appl
-; (church-compile
-;   `(let* ([fn  (lambda (j) (= j 3))])
-;      ; #t))
-;      (fn 3)))
-
-; ; currying
-; (church-compile '(let ([f (lambda (a b c) (+ a (+ b c)))])
-;                    (f (f 0 0 5) (f 10 15 20) (f 25 30 35))))

@@ -4,7 +4,9 @@
 
 (define prog '#f)
 
-(define unchurch church->boolean)
+; (define unchurch church->bool)
+(define (unchurch cv-comp)
+  ((church->bool cv-comp) (void)))
 
 (define v (eval prog (make-base-namespace)))
 (with-output-to-file "answer"

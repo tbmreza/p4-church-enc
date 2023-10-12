@@ -100,26 +100,50 @@
     [(? literal? e)    (churchify-terminal e)]
 
     [`(if ,e0 ,e1 ,e2)
-      `(,(churchify `(,(churchify e0) (lambda () ,(churchify e1)) (lambda () ,(churchify e2)))))]
+      ; `(,(churchify `(,(churchify e0) (lambda () ,(churchify e1)) (lambda () ,(churchify e2)))))]
+      ; `(,(churchify e0) (lambda () ,(churchify e1)) (lambda () ,(churchify e2)))]
+      (churchify `(,e0 (lambda () ,e1) (lambda () ,e2)))]
 
     [`(lambda ,xs ,e-body)
       (define (h xs)
         (match xs
+          ; always churchified even though thunked to prevent eval?
           ['()           (churchify e-body)]
+          ; ['()           e-body]
           [`(,x . ,rst)  `(lambda (,x) ,(h rst))]))
-      (h xs)]
+      (h xs)
+      ; (churchify (h xs))
+      ]
 
     [`(,binary-op ,e1 ,e2)
-      (display "inp:\t")(displayln e)
-      (define bp
-        `((,binary-op ,e1) ,e2)
-      )
-      (display "out:\t")(displayln bp)
-      bp]
+      ; (display 'inp:)(displayln e)
+      (churchify `((,binary-op ,e1) ,e2))
+      ; (churchify `((,binary-op (lambda () ,e1)) (lambda () ,e2)))
+
+      ; (define bp
+      ;   `((,binary-op ,e1) ,e2)
+      ; )
+      ; ; (display 'bp)(displayln bp)
+      ;
+      ; (define hc?
+      ;   (match e2
+      ;     [`(+ b c)  #t]
+      ;     [_
+      ;       #f]))
+      ; ; (display 'hc?)(displayln hc?)
+      ;
+      ; (define ret (cond
+      ;   ; [hc?   `((,binary-op ,e1) ,(churchify e2))]
+      ;   ; [else  bp]))
+      ;   [else  (churchify bp)]))
+      ; ret
+
+      ]
 
     [`(,op ,arg)
-      (display "oa inp:\t")(displayln e)
-      `(,(churchify op) ,(churchify arg))]
+      (define oa `(,(churchify op) ,(churchify arg)))
+      ; (display 'oa:)(displayln oa)
+      oa]
 
     [(not (? list? _))  e]
 

@@ -43,18 +43,23 @@
     (lambda (f)
       (lambda (x) ((cn f) ((ck f) x))))))
 
+(define TRUE   (lambda (a) (lambda (_) a)))
+(define FALSE  (lambda (_) (lambda (b) b)))
+
 ; One intuition (immediate observation of a simpler definition, not the one implemented below. The implementation below is called "wisdom tooth trick" for some intuition I can't work out yet.)
 ; of PRED is we start with a pair of zeros ((CONS c0) c0).
-; 
+;
 ; If we input c0 (a lambda that *ignores* its outer-most parameter f), we take the first of our pair.
-; 
+;
 ; If we input c1 (a lambda that applies f *once*), we take the second of previous step c0 as our new first; our new second succ of that new first;
 ;   and finally return the first of our pair.
-; 
+;
 ; We increase the number of swapping-incrementing dance steps as we increment our input. (PRED k+1) leads (PRED k) by one because we do the dance one more time, by definition of church numerals.
 (define PAIR  (λ (a) (λ (b) (λ (s) ((s a) b)))))
-(define FST   (λ (p) (p TRUE)))
-(define SND   (λ (p) (p FALSE)))
+; (define FST   (λ (p) (p TRUE)))
+(define FST   (lambda (p) (p (lambda (a) (lambda (_) a)))))
+; (define SND   (λ (p) (p FALSE)))
+(define SND   (lambda (p) (p (lambda (_) (lambda (b) b)))))
 (define T     (λ (p) ((PAIR (SUCC (FST p))) (FST p))))
 (define PRED  (λ (n) (SND ((n T) ((PAIR c0) c0)))))
 
@@ -70,8 +75,6 @@
     (lambda (f)
       (lambda (x) (((cn ck) f) x)))))
 
-(define TRUE   (lambda (a) (lambda (_) a)))
-(define FALSE  (lambda (_) (lambda (b) b)))
 (define NOT    (λ (b) ((b FALSE) TRUE)))
 ; (define ZERO?  (lambda (n) ((n (lambda (x) (x FALSE))) TRUE)))  ; ((((ZERO? c1) '()) 11) 32)
 (define ZERO?  (lambda (n)
@@ -83,23 +86,23 @@
 (define NULL? (λ (lst) ((lst (λ (_) (λ (_) FALSE))) (λ (_) TRUE))))
 
 (define CONS (lambda (head)
-                (lambda (tail)
-                  (lambda (when-cons)
-                    (lambda (_) ((when-cons head) tail))))))
+               (lambda (tail)
+                 (lambda (when-cons)
+                   (lambda (_) ((when-cons head) tail))))))
 
 (define VOID  (λ (void) void))
 (define NIL   (λ (when-cons) (λ (when-nil) (when-nil VOID))))
 
 (define ERROR (λ (_)
-                 ((λ (f) (f f)) (λ (f) (f f)))))
+                ((λ (f) (f f)) (λ (f) (f f)))))
 
 (define CAR (λ (lst)
-               ((lst (λ (car) (λ (_cdr) car)))
-                ERROR)))
+              ((lst (λ (car) (λ (_cdr) car)))
+               ERROR)))
 
 (define CDR (λ (lst)
-               ((lst (λ (_car) (λ (cdr) cdr)))
-                ERROR)))
+              ((lst (λ (_car) (λ (cdr) cdr)))
+               ERROR)))
 
 (define c0 (lambda (_) (lambda (x) x)))
 (define c1 (lambda (f) (lambda (x) (f x))))
