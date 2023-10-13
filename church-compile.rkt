@@ -108,15 +108,13 @@
       ; (display "inp:")(displayln e)
       (define (h xs)
         (match xs
-          ; PICKUP omega doesn't hang if not churchified.
-          ; always churchified even though thunked to prevent eval?
           ['()           (churchify e-body)]
           ; ['()           e-body]
           [`(,x . ,rst)  `(lambda (,x) ,(h rst))]))
-      (define brewed (h xs))
-      ; (display 'done:)(displayln brewed)
-      ; (churchify brewed)
-      brewed
+      (define ret (h xs))
+      ; (display 'done:)(displayln ret)
+      ; (churchify ret)
+      ret
       ]
 
     [`(,op ,arg)
