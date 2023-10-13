@@ -87,16 +87,14 @@
   (define (left-left bind acc)
     (match bind
       ['()           acc]
-      [`(,x . (,e))
-        `((lambda (,x) ,acc)  ,(churchify e))]))
+      [`(,x . (,e))  `((lambda (,x) ,acc)  ,(churchify e))]))
 
   (define (surround es)
     (match es
       [`(,fst ,snd . ,rst)  (surround `(,(churchify `(,fst ,snd)) ,@rst))]
       ; [es                   (first es)]))
-      [(? list? es)                   (first es)]
-      [es                   es]
-      ))
+      [(? list? es)         (first es)]
+      [es                   es]))
 
   (match e
     [(? literal? e)
@@ -108,16 +106,16 @@
     [`(let ,binds ,e-b)
       (foldl left-left (churchify e-b) binds)]
 
+    [`(letrec ([,f ,l]) ,e-b)
+      (churchify `(let ([,f (,Y (lambda (,f) ,l))]) ,e-b))]
+
     [`(if ,e0 ,e1 ,e2)
-      ; (churchify `(,e0 (lambda () ,e1) (lambda () ,e2)))]
       `(,(churchify `(,e0 (lambda () ,e1) (lambda () ,e2))))]
 
-    ; [`(lambda () ,e-body)  `(lambda () ,(churchify e-body))]
     [`(lambda ,xs ,e-body) #:when (<= (length xs) 1)
       `(lambda ,xs ,(churchify e-body))]
 
     [`(lambda ,xs ,e-body)
-      ; (display "inp:")(displayln e)
       (define (h xs)
         (match xs
           ; ['()           (churchify e-body)]
@@ -125,30 +123,18 @@
           ['()           (surround e-body)]
           [`(,x . ,rst)  `(lambda (,x) ,(h rst))]))
       (define ret (h xs))
-      ; (display 'done:)(displayln ret)
-      ; (churchify ret)
       ret
       ]
 
     [`(,op ,arg)
       (define oa `(,(churchify op) ,(churchify arg)))
-      ; (display "oa:\t")(displayln oa)
       oa]
 
     [(not (? list? _))
-     ; (display 'e:)(displayln e)
-     e]
+      e]
 
     [(? list es)
-      ; (display "inp:")(displayln e)
       (define sur (surround es))
-      ; (display "sur:\t")(displayln sur)
-      ; (define a (church->nat (second (first (first sur)))))
-      ; (display 'a)(displayln a)
-      ; (define b (church->nat (second (first sur))))
-      ; (display 'b)(displayln b)
-      ; (define c (church->nat (second sur)))
-      ; (display 'c)(displayln c)
       sur
       ]
     ))

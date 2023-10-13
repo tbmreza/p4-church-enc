@@ -78,6 +78,7 @@
 (check-eq? 5 (church->nat (church-compile '(if (not #t) 3 (let ([U (lambda (u) (u u))]) 5)))))
 (check-true ((church->bool ((church-compile '(lambda () #t)))) (void)))
 (check-eq? 3 (church->nat (church-compile '(if (not #f) 3 (let ([U (lambda (u) (u u))]) (U U))))))
+(check-eq? 6 (church->nat (church-compile '(if #t (let ([U (lambda (u) (u u))]) 6) 3))))
 
 (check-eq? 720 (church->nat (church-compile
   `(let* ([U (lambda (u) (u u))]
@@ -87,3 +88,15 @@
                            1
                            (* n ((U mk-fact) (- n 1)))))))])
      (fact 6)))))
+
+(check-eq? 6 (church->nat (church-compile
+  '(letrec ([len (lambda (lst)
+                   (if (null? lst)
+                       0
+                       (add1 (len (cdr lst)))))])
+     (len (cons 1 (cons 2 (cons 3 (cons 4 (cons 5 (cons '() '())))))))))))
+
+(check-eq? 6 (church->nat (church-compile (let ([lst (cons '() (cons 3 '()))])
+         (if (null? (car lst))
+             (* 2 (car (cdr lst)))
+             7)))))

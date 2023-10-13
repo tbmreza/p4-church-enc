@@ -1,20 +1,11 @@
 #lang racket
 
-(require rackunit)
 (provide (all-defined-out))
 
 (define (evalnew data)
   (eval data (make-base-namespace)))
 
 (define (any? _) #t)
-
-(define (len-is-n? n l)
-  (cond [(not (list? l))  #f]
-        [l                (= n (length l))]))
-
-(define (len-is-2? l)
-  (cond [(not (list? l))  #f]
-        [l                (= 2 (length l))]))
 
 (define (literal? v)
   (or (number? v) (member v `(#t #f '()))))
@@ -31,8 +22,7 @@
 (define (binary? prim) (member prim '(+ - * = cons)))
 
 (define U (lambda (x) (x x)))
-; (define Y (U (λ (y) (λ (f) (f (λ (x) (((y y) f) x)))))))
-(define Y (λ (g) ((λ (f) (g (λ (x) ((f f) x)))) (λ (f) (g (λ (x) ((f f) x)))))))
+(define Y (lambda (g) ((lambda (f) (g (lambda (x) ((f f) x)))) (lambda (f) (g (lambda (x) ((f f) x)))))))
 
 (define (SUCC cn)
   (lambda (f)
@@ -56,9 +46,7 @@
 ;
 ; We increase the number of swapping-incrementing dance steps as we increment our input. (PRED k+1) leads (PRED k) by one because we do the dance one more time, by definition of church numerals.
 (define PAIR  (λ (a) (λ (b) (λ (s) ((s a) b)))))
-; (define FST   (λ (p) (p TRUE)))
 (define FST   (lambda (p) (p (lambda (a) (lambda (_) a)))))
-; (define SND   (λ (p) (p FALSE)))
 (define SND   (lambda (p) (p (lambda (_) (lambda (b) b)))))
 (define T     (λ (p) ((PAIR (SUCC (FST p))) (FST p))))
 (define PRED  (λ (n) (SND ((n T) ((PAIR c0) c0)))))
@@ -76,7 +64,6 @@
       (lambda (x) (((cn ck) f) x)))))
 
 (define NOT    (λ (b) ((b FALSE) TRUE)))
-; (define ZERO?  (lambda (n) ((n (lambda (x) (x FALSE))) TRUE)))  ; ((((ZERO? c1) '()) 11) 32)
 (define ZERO?  (lambda (n)
                  ((n (lambda (_) FALSE)) TRUE)))
 (define LEQ?   (lambda (m) (lambda (n) (ZERO? ((MINUS m) n)))))
