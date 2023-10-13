@@ -55,6 +55,7 @@
 ; nested binop
 (check-eq? 140 (church->nat (church-compile '(let ([f (lambda (a b c) (+ a (+ b c)))]) (f (f 0 0 5) (f 10 15 20) (f 25 30 35))))))
 (check-eq? 6 (church->nat (church-compile '(let ([f (lambda (a b c) (+ a (+ b c)))]) (f 1 2 3)))))
+(check-eq? 5 (church->nat (church-compile '(let ([f (lambda (b c) (+ b c))]) (f 2 3)))))
 
 ; lambda body of if
 (check-eq? 1 (church->nat (church-compile '(let ([fn (lambda (a) (if (zero? a) 1 2))])  (fn 0)))))
@@ -71,21 +72,18 @@
 (check-eq? 3 (church->nat (church-compile '(let* ([x 3][y x])  y))))
 (check-eq? 3 (church->nat (church-compile '(let* ([x 3][y x])  (if #t y 0)))))
 (check-eq? 4 (church->nat (church-compile '(let* ([x 4][y 5])  (if (zero? 0) x y)))))
+(check-eq? 5 (church->nat (church-compile '(let* ([x 4][y 5])  (if (zero? 9) x y)))))
 
-; ; PICKUP omega safe: slap thunk somewhere
-; (check-eq? 5 (church->nat (church-compile '(if (not #t) 3 (let ([U (lambda (u) (u u))]) 5)))))
-; (check-eq? 3 (church->nat (church-compile '(if #t 3 (let ([U (lambda (u) (u u))]) 5)))))
-; (check-eq? 5 (church->nat (church-compile '(if #t 3 (let ([U (lambda (u) (u u))]) 5)))))
+; omega-safe if
+(check-eq? 5 (church->nat (church-compile '(if (not #t) 3 (let ([U (lambda (u) (u u))]) 5)))))
+(check-true ((church->bool ((church-compile '(lambda () #t)))) (void)))
+(check-eq? 3 (church->nat (church-compile '(if (not #f) 3 (let ([U (lambda (u) (u u))]) (U U))))))
 
-; (church-compile '(if (not #f) 3 (let ([U (lambda (u) (u u))]) (U U))))
-; (check-eq? 3 (church->nat (church-compile '(if (not #f) 3 (let ([U (lambda (u) (u u))]) (U U))))))
-; ((TRUE (lambda () (lambda () 3))) (lambda () (lambda () (let ((U (lambda (u) (u u)))) 5))))
-
-; (church-compile
-;   `(let* ([U (lambda (u) (u u))]
-;           [fact (U (lambda (mk-fact)
-;                      (lambda (n)
-;                        (if (zero? n)
-;                            1
-;                            (* n ((U mk-fact) (- n 1)))))))])
-;      (fact 6)))
+(check-eq? 720 (church->nat (church-compile
+  `(let* ([U (lambda (u) (u u))]
+          [fact (U (lambda (mk-fact)
+                     (lambda (n)
+                       (if (zero? n)
+                           1
+                           (* n ((U mk-fact) (- n 1)))))))])
+     (fact 6)))))

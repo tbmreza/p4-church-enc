@@ -90,6 +90,14 @@
       [`(,x . (,e))
         `((lambda (,x) ,acc)  ,(churchify e))]))
 
+  (define (surround es)
+    (match es
+      [`(,fst ,snd . ,rst)  (surround `(,(churchify `(,fst ,snd)) ,@rst))]
+      ; [es                   (first es)]))
+      [(? list? es)                   (first es)]
+      [es                   es]
+      ))
+
   (match e
     [(? literal? e)
       (churchify-terminal e)]
@@ -101,15 +109,20 @@
       (foldl left-left (churchify e-b) binds)]
 
     [`(if ,e0 ,e1 ,e2)
-      (churchify `(,e0 (lambda () ,e1) (lambda () ,e2)))]
-      ; `(,(churchify `(,e0 (lambda () ,e1) (lambda () ,e2))))]
+      ; (churchify `(,e0 (lambda () ,e1) (lambda () ,e2)))]
+      `(,(churchify `(,e0 (lambda () ,e1) (lambda () ,e2))))]
+
+    ; [`(lambda () ,e-body)  `(lambda () ,(churchify e-body))]
+    [`(lambda ,xs ,e-body) #:when (<= (length xs) 1)
+      `(lambda ,xs ,(churchify e-body))]
 
     [`(lambda ,xs ,e-body)
       ; (display "inp:")(displayln e)
       (define (h xs)
         (match xs
-          ['()           (churchify e-body)]
+          ; ['()           (churchify e-body)]
           ; ['()           e-body]
+          ['()           (surround e-body)]
           [`(,x . ,rst)  `(lambda (,x) ,(h rst))]))
       (define ret (h xs))
       ; (display 'done:)(displayln ret)
@@ -122,17 +135,20 @@
       ; (display "oa:\t")(displayln oa)
       oa]
 
-    [(not (? list? _))  e]
+    [(not (? list? _))
+     ; (display 'e:)(displayln e)
+     e]
 
     [(? list es)
       ; (display "inp:")(displayln e)
-      (define (surround es)
-        (match es
-          [`(,fst ,snd . ,rst)  (surround `(,(churchify `(,fst ,snd)) ,@rst))]
-          [es                   (first es)])) ; probably empty lists etc etc
-          ; [es                   es]))
       (define sur (surround es))
       ; (display "sur:\t")(displayln sur)
+      ; (define a (church->nat (second (first (first sur)))))
+      ; (display 'a)(displayln a)
+      ; (define b (church->nat (second (first sur))))
+      ; (display 'b)(displayln b)
+      ; (define c (church->nat (second sur)))
+      ; (display 'c)(displayln c)
       sur
       ]
     ))
@@ -140,7 +156,13 @@
 ; Takes a whole program in the input language, and converts it into an equivalent program in lambda-calc
 ; Build a let expression containing all helpers and the input program.
 (define (church-compile program)
-  (evalnew (churchify
+  (define ch (churchify
     `(let ([add1 ,SUCC] [null? ,NULL?] [sub1 ,PRED] [cons ,CONS] [not ,NOT] [and ,AND] [car ,CAR]
            [cdr ,CDR] [= ,EQ?] [+ ,PLUS] [zero? ,ZERO?] [nol? ,ZERO?] [- ,MINUS] [* ,MUL])
-    ,program))))
+    ,program)))
+  ; (display "out:\t")(displayln ch)
+  (evalnew ch))
+  ; (evalnew (churchify
+  ;   `(let ([add1 ,SUCC] [null? ,NULL?] [sub1 ,PRED] [cons ,CONS] [not ,NOT] [and ,AND] [car ,CAR]
+  ;          [cdr ,CDR] [= ,EQ?] [+ ,PLUS] [zero? ,ZERO?] [nol? ,ZERO?] [- ,MINUS] [* ,MUL])
+  ;   ,program))))
