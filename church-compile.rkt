@@ -91,13 +91,14 @@
         `((lambda (,x) ,acc)  ,(churchify e))]))
 
   (match e
+    [(? literal? e)
+      (churchify-terminal e)]
+
     [`(let* ,binds ,e-b)
       (foldr left-left (churchify e-b) binds)]
 
     [`(let ,binds ,e-b)
       (foldl left-left (churchify e-b) binds)]
-
-    [(? literal? e)    (churchify-terminal e)]
 
     [`(if ,e0 ,e1 ,e2)
       (churchify `(,e0 (lambda () ,e1) (lambda () ,e2)))]
@@ -129,15 +130,14 @@
       ; (display "inp:")(displayln e)
       (define (surround es)
         (match es
-          [`(,fst ,snd . ,rst)  (surround `((,(churchify fst) ,(churchify snd)) ,@rst))]
-          [es                   (first es)])) ; simple guy, I see pair of extraneous parens, I apply first. probably empty lists etc etc
+          [`(,fst ,snd . ,rst)  (surround `(,(churchify `(,fst ,snd)) ,@rst))]
+          [es                   (first es)])) ; probably empty lists etc etc
           ; [es                   es]))
       (define sur (surround es))
-      (display "sur:\t")(displayln sur)
+      ; (display "sur:\t")(displayln sur)
       sur
-      ]))
-;  (((#<procedure:TRUE> #<procedure>) ((lambda (U) #<procedure>) (lambda (u) (u u)))))
-;  (((TRUE c3) ((lambda (U) c5) (lambda (u) (u u)))))
+      ]
+    ))
 
 ; Takes a whole program in the input language, and converts it into an equivalent program in lambda-calc
 ; Build a let expression containing all helpers and the input program.
