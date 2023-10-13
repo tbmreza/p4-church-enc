@@ -96,7 +96,23 @@
                        (add1 (len (cdr lst)))))])
      (len (cons 1 (cons 2 (cons 3 (cons 4 (cons 5 (cons '() '())))))))))))
 
-(check-eq? 6 (church->nat (church-compile (let ([lst (cons '() (cons 3 '()))])
+(check-eq? 6 (church->nat (church-compile
+      `(let ([lst (cons '() (cons 3 '()))])
          (if (null? (car lst))
              (* 2 (car (cdr lst)))
              7)))))
+
+(check-eq? 6 (church->nat (church-compile  ; ok
+      `(if #t 6 0))))
+
+(check-eq? 6 (church->nat (church-compile  ; ok
+      `(if #t (let () 6) 0))))
+
+; (church->nat (church-compile  ; smallest panicking test
+;       `(if #t (let () (if #t 6 0)) 0)))
+
+(check-eq? 6 (church->nat ((church-compile  ; ok, but manually applied with ((church-compile ...))
+      `(if #t (let ([lst (cons '() (cons 3 '()))])
+         (if (null? (car lst))
+             (* 2 (car (cdr lst)))
+             7)) 0)))))
