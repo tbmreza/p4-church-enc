@@ -3,16 +3,16 @@ tests:
 - [x] public-bool2/          
 - [x] public-list0/
 - [x] public-add1/           
-- [ ] public-curry/          
+- [x] public-curry/          
 - [x] public-list1/
 - [x] public-arith0/         
-- [ ] public-factorial-bonus/
+- [x] public-factorial-bonus/
 - [x] public-list2/
 - [x] public-arith1/         
-- [ ] public-length/         
+- [x] public-length/         
 - [x] public-multiply/
 - [x] public-arith-bonus/    
-- [ ] public-length-letrec/  
+- [x] public-length-letrec/  
 - [x] public-zero/
 - [x] public-bool0/          
 - [x] public-let0/
