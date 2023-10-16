@@ -3,14 +3,11 @@
 (require "definitions.rkt")
 ;; Assignment 4: A church-compiler for Scheme, to Lambda-calculus
 
-(provide (all-defined-out))
-
-; (provide church-compile
-;          church->boolean
-;          ; provided conversions:
-;          church->nat
-;          church->bool
-;          church->listof)
+(provide church-compile
+         ; provided conversions:
+         church->nat
+         church->bool
+         church->listof)
 
 
 ;; Input language:
@@ -51,9 +48,10 @@
 ;; Using the following decoding functions:
 
 ; A church-encoded nat is a function taking an f, and x, returning (f^n x)
-; Takes in evaled church-compile output. Expect (church->nat (eval (church-compile input) ...)) to be $answer.
 (define (church->nat c-nat)
-  ((c-nat add1) 0))
+  (define try (with-handlers ([exn:fail? (λ (_e) ((c-nat) add1))])
+    (c-nat add1)))
+  (try 0))
 
 ; A church-encoded bool is a function taking a true-thunk and false-thunk,
 ;   returning (true-thunk) when true, and (false-thunk) when false
@@ -92,7 +90,6 @@
   (define (surround es)
     (match es
       [`(,fst ,snd . ,rst)  (surround `(,(churchify `(,fst ,snd)) ,@rst))]
-      ; [es                   (first es)]))
       [(? list? es)         (first es)]
       [es                   es]))
 
@@ -118,37 +115,18 @@
     [`(lambda ,xs ,e-body)
       (define (h xs)
         (match xs
-          ; ['()           (churchify e-body)]
-          ; ['()           e-body]
           ['()           (surround e-body)]
           [`(,x . ,rst)  `(lambda (,x) ,(h rst))]))
-      (define ret (h xs))
-      ret
-      ]
+      (h xs)]
 
-    [`(,op ,arg)
-      (define oa `(,(churchify op) ,(churchify arg)))
-      oa]
-
-    [(not (? list? _))
-      e]
-
-    [(? list es)
-      (define sur (surround es))
-      sur
-      ]
-    ))
+    [`(,op ,arg)  `(,(churchify op) ,(churchify arg))]
+    [(? list es)  (surround es)]
+    [_            e]))
 
 ; Takes a whole program in the input language, and converts it into an equivalent program in lambda-calc
 ; Build a let expression containing all helpers and the input program.
 (define (church-compile program)
-  (define ch (churchify
+  (evalnew (churchify
     `(let ([add1 ,SUCC] [null? ,NULL?] [sub1 ,PRED] [cons ,CONS] [not ,NOT] [and ,AND] [car ,CAR]
            [cdr ,CDR] [= ,EQ?] [+ ,PLUS] [zero? ,ZERO?] [nol? ,ZERO?] [- ,MINUS] [* ,MUL])
-    ,program)))
-  ; (display "out:\t")(displayln ch)
-  (evalnew ch))
-  ; (evalnew (churchify
-  ;   `(let ([add1 ,SUCC] [null? ,NULL?] [sub1 ,PRED] [cons ,CONS] [not ,NOT] [and ,AND] [car ,CAR]
-  ;          [cdr ,CDR] [= ,EQ?] [+ ,PLUS] [zero? ,ZERO?] [nol? ,ZERO?] [- ,MINUS] [* ,MUL])
-  ;   ,program))))
+    ,program))))

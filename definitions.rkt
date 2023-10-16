@@ -5,8 +5,6 @@
 (define (evalnew data)
   (eval data (make-base-namespace)))
 
-(define (any? _) #t)
-
 (define (literal? v)
   (or (number? v) (member v `(#t #f '()))))
 

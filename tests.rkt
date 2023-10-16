@@ -102,17 +102,17 @@
              (* 2 (car (cdr lst)))
              7)))))
 
-(check-eq? 6 (church->nat (church-compile  ; ok
+(check-eq? 6 (church->nat (church-compile
       `(if #t 6 0))))
 
-(check-eq? 6 (church->nat (church-compile  ; ok
+(check-eq? 6 (church->nat (church-compile
       `(if #t (let () 6) 0))))
 
-; (church->nat (church-compile  ; smallest panicking test
-;       `(if #t (let () (if #t 6 0)) 0)))
-
-(check-eq? 6 (church->nat ((church-compile  ; ok, but manually applied with ((church-compile ...))
+(check-eq? 6 (church->nat (church-compile
       `(if #t (let ([lst (cons '() (cons 3 '()))])
          (if (null? (car lst))
              (* 2 (car (cdr lst)))
-             7)) 0)))))
+             7)) 0))))
+
+(check-eq? 1 (church->nat (church-compile
+      `(if #t (let () (if #t 1 2)) 3))))
